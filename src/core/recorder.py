@@ -28,7 +28,9 @@ class AudioRecorder:
       - Does not perform threading or advanced buffering responsibilities.
     """
 
-    def __init__(self, sample_rate: int = 16000, block_size: int = 8000, channels: int = 1) -> None:
+    def __init__(
+        self, sample_rate: int = 16000, block_size: int = 8000, channels: int = 1
+    ) -> None:
         self._device_id: Optional[int] = None
         self._stream: Optional[Any] = None
         self._buffer: List[np.ndarray] = []
@@ -137,7 +139,9 @@ class AudioRecorder:
         if sd is None:
             return False
         try:
-            sd.check_input_settings(device=device_id, samplerate=self.sample_rate, channels=self.channels)
+            sd.check_input_settings(
+                device=device_id, samplerate=self.sample_rate, channels=self.channels
+            )
             return True
         except Exception as e:
             # If check_input_settings raised a PortAudioError, device isn't compatible
@@ -166,7 +170,9 @@ class AudioRecorder:
         self._overflow_count = 0
         self._recording = True
 
-        device = self.device_id if self.device_id is not None else self.get_default_device()
+        device = (
+            self.device_id if self.device_id is not None else self.get_default_device()
+        )
 
         if device is None:
             # try to pick the first available input device if query_devices is populated
@@ -183,7 +189,9 @@ class AudioRecorder:
 
         # Validate device compatibility
         if not self._validate_device(device):
-            raise AudioRecorderError(f"Device {device} does not support {self.sample_rate}Hz sample rate")
+            raise AudioRecorderError(
+                f"Device {device} does not support {self.sample_rate}Hz sample rate"
+            )
 
         try:
             try:
