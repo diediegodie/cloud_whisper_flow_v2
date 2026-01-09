@@ -1,0 +1,1 @@
+{"id":"cloud_whisper_flow_v2-g19","title":"Cleanup: purge stt_models from history; added to .gitignore; force-pushed cleaned main","status":"open","priority":1,"issue_type":"task","created_at":"2026-01-09T11:57:03.863461885-03:00","created_by":"diego","updated_at":"2026-01-09T11:57:03.863461885-03:00"}
