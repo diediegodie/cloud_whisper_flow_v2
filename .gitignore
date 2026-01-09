@@ -1,3 +1,4 @@
 .planning/
 .github/
-venv/stt_models/
+venv/
+stt_models/
