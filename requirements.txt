@@ -1,0 +1,16 @@
+# GUI + System Tray + Clipboard + Threading
+PySide6==6.6.1
+
+# Speech-to-Text (offline, lightweight)
+vosk==0.3.45
+
+# Audio Capture
+sounddevice==0.4.6
+numpy==1.26.2
+
+# Translation (multi-engine with automatic fallbacks)
+translators==5.8.9
+
+# Global Hotkeys + Text Output
+keyboard==0.13.5
+
