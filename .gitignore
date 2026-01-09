@@ -1,4 +1,45 @@
+# .gitignore for Cloud Whisper Flow v2
 .planning/
 .github/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Models (large files)
 stt_models/
+*.zip
+
+# Build outputs
+dist/
+build/
+*.exe
+*.spec
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (may contain sensitive info)
+config.json
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
