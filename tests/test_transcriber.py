@@ -1,47 +1,86 @@
+import json
 import os
+from pathlib import Path
 
 import numpy as np
 import pytest
 
+from src.core import transcriber as transcriber_mod
+from src.core.transcriber import Transcriber, TranscriberError
 from src.utils.paths import get_model_path
 
-from src.core.transcriber import Transcriber, TranscriberError
+
+@pytest.fixture(autouse=True)
+def mock_vosk(monkeypatch):
+    """Always replace `Model` and `KaldiRecognizer` in the transcriber
+    module with lightweight fakes so unit tests never load the real model.
+    """
+
+    def FakeModel(path):
+        return object()
+
+    class FakeRecognizer:
+        def __init__(self, model, sample_rate):
+            self._buf = bytearray()
+
+        def AcceptWaveform(self, data: bytes) -> bool:
+            # pretend to accept data
+            self._buf.extend(data)
+            return True
+
+        def FinalResult(self) -> str:
+            return json.dumps({"text": ""})
+
+        def Result(self) -> str:
+            return json.dumps({"text": ""})
+
+    monkeypatch.setattr(transcriber_mod, "Model", FakeModel)
+    monkeypatch.setattr(transcriber_mod, "KaldiRecognizer", FakeRecognizer)
 
 
-def test_imports_and_instantiation() -> None:
+@pytest.fixture
+def transcriber_instance():
+    """Return a Transcriber instance without model loaded."""
+    return Transcriber()
+
+
+@pytest.fixture
+def transcriber_with_model():
+    """Return a Transcriber instance with model loaded."""
     t = Transcriber()
-    assert not t.is_model_loaded()
+    t.load_model()
+    return t
 
 
-def test_transcribe_without_model_raises() -> None:
-    t = Transcriber()
+def test_imports_and_instantiation(transcriber_instance) -> None:
+    assert not transcriber_instance.is_model_loaded()
+
+
+def test_transcribe_raises_when_model_not_loaded(transcriber_instance) -> None:
     with pytest.raises(TranscriberError):
-        t.transcribe(np.array([0], dtype=np.int16))
+        transcriber_instance.transcribe(np.array([], dtype=np.int16))
 
 
-@pytest.mark.skipif(not get_model_path().exists(), reason="Vosk model not available")
-def test_model_loading_and_empty_audio(tmp_path) -> None:
-    t = Transcriber()
-    t.load_model()
-    assert t.is_model_loaded()
-
-    # empty audio returns empty string
-    out = t.transcribe(np.array([], dtype=np.int16))
-    assert isinstance(out, str)
-    assert out == ""
+def test_model_loads_and_status(transcriber_instance) -> None:
+    assert not transcriber_instance.is_model_loaded()
+    transcriber_instance.load_model()
+    assert transcriber_instance.is_model_loaded()
 
 
-@pytest.mark.skipif(not get_model_path().exists(), reason="Vosk model not available")
-def test_silent_and_float_audio_handling() -> None:
-    t = Transcriber()
-    t.load_model()
-
-    # silent int16 audio
-    silent = np.zeros(16000, dtype=np.int16)
-    res = t.transcribe(silent)
-    assert isinstance(res, str)
-
-    # float audio (silence) should be converted and processed
-    silent_f = np.zeros(16000, dtype=np.float32)
-    res2 = t.transcribe(silent_f)
-    assert isinstance(res2, str)
+@pytest.mark.parametrize(
+    "audio_data,expected_result",
+    [
+        (np.array([], dtype=np.int16), ""),  # empty array
+        (np.zeros(16000, dtype=np.int16), str),  # silent int16 (1s @ 16kHz)
+        (np.zeros(1600, dtype=np.float32), str),  # silent float32
+    ],
+    ids=["empty_int16", "silent_int16", "silent_float32"],
+)
+def test_transcribe_audio_handling(
+    transcriber_with_model, audio_data, expected_result
+) -> None:
+    result = transcriber_with_model.transcribe(audio_data)
+    if expected_result == str:
+        assert isinstance(result, str)
+    else:
+        assert result == expected_result
