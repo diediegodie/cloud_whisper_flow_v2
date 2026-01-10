@@ -1,7 +1,7 @@
 """Floating record button for Background Mode."""
 
 from PySide6.QtWidgets import QWidget, QPushButton, QVBoxLayout, QApplication
-from PySide6.QtCore import Qt, QPoint, Signal
+from PySide6.QtCore import Qt, QPoint, Signal, QEvent
 from PySide6.QtGui import QMouseEvent
 
 
@@ -83,6 +83,15 @@ class FloatingRecordButton(QWidget):
         # Position in top-right corner of the floating widget
         self.restore_button.move(self.width() - 24, 4)
         self.restore_button.raise_()
+
+        # Install event filters so child widgets forward mouse events to the
+        # floating widget. This ensures dragging works when clicking anywhere
+        # on the control (button or small restore button).
+        try:
+            self.button.installEventFilter(self)
+            self.restore_button.installEventFilter(self)
+        except Exception:
+            pass
 
         # Allow dragging the floating widget when interacting with the small restore button.
         orig_restore_press = getattr(self.restore_button, "mousePressEvent", None)
@@ -184,6 +193,32 @@ class FloatingRecordButton(QWidget):
         self.button.mousePressEvent = _button_mousePress
         self.button.mouseMoveEvent = _button_mouseMove
         self.button.mouseReleaseEvent = _button_mouseRelease
+
+    def eventFilter(self, obj, event):
+        """Forward mouse events from child widgets to the floating widget so
+        dragging works when clicking any child control."""
+        if event.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease, QEvent.MouseMove):
+            # Map press/move/release to widget handlers
+            if event.type() == QEvent.MouseButtonPress:
+                self.mousePressEvent(event)
+            elif event.type() == QEvent.MouseMove:
+                self.mouseMoveEvent(event)
+            else:
+                # MouseButtonRelease
+                try:
+                    # persist last position on release
+                    self._saved_pos = self.pos()
+                except Exception:
+                    pass
+                try:
+                    # allow original handlers to run too
+                    orig = getattr(obj, "mouseReleaseEvent", None)
+                    if callable(orig):
+                        orig(event)
+                except Exception:
+                    pass
+            return False  # don't swallow event; let button behave normally
+        return super().eventFilter(obj, event)
 
     def _on_toggled(self, checked: bool):
         """Handle button toggle and emit signal."""

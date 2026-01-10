@@ -27,6 +27,33 @@ class TitleBar(QWidget):
         super().__init__(parent)
         self.parent_window = parent
         self._setup_ui()
+        # Install event filters on child widgets so clicks anywhere on the
+        # title bar can be used to drag the parent window.
+        try:
+            for child in (self.findChildren(QWidget) or []):
+                child.installEventFilter(self)
+        except Exception:
+            pass
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+
+        if event.type() in (QEvent.MouseButtonPress, QEvent.MouseMove, QEvent.MouseButtonRelease):
+            # Forward mouse events to parent window for dragging behavior.
+            try:
+                if event.type() == QEvent.MouseButtonPress:
+                    self.parent_window.mousePressEvent(event)
+                elif event.type() == QEvent.MouseMove:
+                    self.parent_window.mouseMoveEvent(event)
+                else:
+                    # persist position on release
+                    try:
+                        self.parent_window._saved_geometry = self.parent_window.geometry()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        return False
 
     def _setup_ui(self):
         layout = QHBoxLayout(self)
