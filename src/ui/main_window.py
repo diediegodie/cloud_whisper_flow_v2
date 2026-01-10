@@ -320,16 +320,22 @@ class FloatingWidget(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             # store offset between mouse global pos and window top-left
-            self._drag_position = (
-                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            )
+            try:
+                gp = event.globalPosition().toPoint()
+            except Exception:
+                gp = event.globalPos()
+            self._drag_position = gp - self.frameGeometry().topLeft()
             event.accept()
         else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if event.buttons() & Qt.MouseButton.LeftButton:
-            new_pos = event.globalPosition().toPoint() - self._drag_position
+            try:
+                gp = event.globalPosition().toPoint()
+            except Exception:
+                gp = event.globalPos()
+            new_pos = gp - self._drag_position
             self.move(new_pos)
             event.accept()
         else:

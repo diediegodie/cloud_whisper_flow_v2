@@ -70,6 +70,53 @@ class FloatingRecordButton(QWidget):
         # bind directly to the button double-click event
         self.button.mouseDoubleClickEvent = _on_double_click
 
+        # Forward mouse press/move events from the inner button to the
+        # floating widget so users can drag by the button itself.
+        # Preserve original handlers if present.
+        orig_press = getattr(self.button, "mousePressEvent", None)
+        orig_move = getattr(self.button, "mouseMoveEvent", None)
+        orig_release = getattr(self.button, "mouseReleaseEvent", None)
+
+        def _button_mousePress(event: QMouseEvent):
+            if callable(orig_press):
+                try:
+                    orig_press(event)
+                except Exception:
+                    pass
+            if event.button() == Qt.MouseButton.LeftButton:
+                try:
+                    gp = event.globalPosition().toPoint()
+                except Exception:
+                    gp = event.globalPos()
+                self._drag_position = gp - self.frameGeometry().topLeft()
+                event.accept()
+
+        def _button_mouseMove(event: QMouseEvent):
+            if event.buttons() & Qt.MouseButton.LeftButton:
+                try:
+                    gp = event.globalPosition().toPoint()
+                except Exception:
+                    gp = event.globalPos()
+                self.move(gp - self._drag_position)
+                event.accept()
+            else:
+                if callable(orig_move):
+                    try:
+                        orig_move(event)
+                    except Exception:
+                        pass
+
+        def _button_mouseRelease(event: QMouseEvent):
+            if callable(orig_release):
+                try:
+                    orig_release(event)
+                except Exception:
+                    pass
+
+        self.button.mousePressEvent = _button_mousePress
+        self.button.mouseMoveEvent = _button_mouseMove
+        self.button.mouseReleaseEvent = _button_mouseRelease
+
     def _on_toggled(self, checked: bool):
         """Handle button toggle and emit signal."""
         if checked:
@@ -85,9 +132,11 @@ class FloatingRecordButton(QWidget):
     # Dragging support
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_position = (
-                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            )
+            try:
+                gp = event.globalPosition().toPoint()
+            except Exception:
+                gp = event.globalPos()
+            self._drag_position = gp - self.frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent):
