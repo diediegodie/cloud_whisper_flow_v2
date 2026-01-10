@@ -310,20 +310,30 @@ class FloatingWidget(QWidget):
             self._saved_size = None
         print(f"[DBG main_window] _minimize_to_floating: saved_pos={getattr(self,'_saved_pos',None)} saved_size={getattr(self,'_saved_size',None)}")
         # Hide main window and show floating button + tray notification
+        print(f"[DBG main_window] _minimize_to_floating: has_floating_button={hasattr(self, 'floating_button')} floating_button_obj={getattr(self, 'floating_button', None)}")
         self.hide()
+        print("[DBG main_window] main window hidden, attempting to show floating_button")
         try:
             # If the floating button was moved by the user previously, restore
             # that position; otherwise, position it at bottom-right.
-            if getattr(self.floating_button, "_saved_pos", None):
-                try:
-                    self.floating_button.move(self.floating_button._saved_pos)
-                except Exception:
-                    self.floating_button.position_bottom_right()
+            if getattr(self, "floating_button", None) is None:
+                print("[DBG main_window] no floating_button attribute - skipping show()")
             else:
-                self.floating_button.position_bottom_right()
-            self.floating_button.show()
-        except Exception:
-            pass
+                try:
+                    if getattr(self.floating_button, "_saved_pos", None):
+                        try:
+                            self.floating_button.move(self.floating_button._saved_pos)
+                        except Exception:
+                            print("[DBG main_window] floating_button.move(saved_pos) failed, positioning bottom-right")
+                            self.floating_button.position_bottom_right()
+                    else:
+                        self.floating_button.position_bottom_right()
+                    self.floating_button.show()
+                    print("[DBG main_window] floating_button.show() called")
+                except Exception as e:
+                    print(f"[DBG main_window] floating_button.show() raised: {e}")
+        except Exception as e:
+            print(f"[DBG main_window] _minimize_to_floating outer exception: {e}")
         try:
             self.tray.show_message(
                 "Voice Translator", "Running in background. Press F8 to record."
