@@ -63,12 +63,26 @@ class FloatingRecordButton(QWidget):
         self.button.toggled.connect(self._on_toggled)
         layout.addWidget(self.button)
 
-        # double-clicking the floating button should restore the main window
-        def _on_double_click(event):
-            self.show_requested.emit()
-
-        # bind directly to the button double-click event
-        self.button.mouseDoubleClickEvent = _on_double_click
+        # Add a small '+' button to restore the main window (replaces double-click)
+        self.restore_button = QPushButton("+", self)
+        self.restore_button.setFixedSize(22, 22)
+        self.restore_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: rgba(0,0,0,0.4);
+                color: white;
+                border-radius: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(0,0,0,0.6);
+            }
+            """
+        )
+        self.restore_button.clicked.connect(lambda: self.show_requested.emit())
+        # Position in top-right corner of the floating widget
+        self.restore_button.move(self.width() - 24, 4)
+        self.restore_button.raise_()
 
         # Forward mouse press/move events from the inner button to the
         # floating widget so users can drag by the button itself.
