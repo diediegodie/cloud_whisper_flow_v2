@@ -65,7 +65,12 @@ class TitleBar(QWidget):
                         pass
             except Exception:
                 pass
-        return False
+            try:
+                event.accept()
+            except Exception:
+                pass
+            return True
+        return super().eventFilter(obj, event)
 
     def _setup_ui(self):
         layout = QHBoxLayout(self)
@@ -92,16 +97,31 @@ class TitleBar(QWidget):
         layout.addWidget(self.close_btn)
 
     def mousePressEvent(self, event):
-        # Forward to parent to allow dragging from title bar
-        try:
-            self.parent_window.mousePressEvent(event)
-        except Exception:
+        print(f"[DBG FloatingWidget] mousePressEvent: pos={self.pos()} global={event.globalPosition() if hasattr(event, 'globalPosition') else event.globalPos()} drag_offset={getattr(self, '_drag_position', None)}")
+        if event.button() == Qt.MouseButton.LeftButton:
+            try:
+                gp = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
+            except Exception:
+                gp = event.globalPos()
+            self._drag_position = gp - self.pos()
+            print(f"[DBG FloatingWidget] drag_offset set: {self._drag_position}")
+            event.accept()
+        else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        try:
-            self.parent_window.mouseMoveEvent(event)
-        except Exception:
+        print(f"[DBG FloatingWidget] mouseMoveEvent: pos={self.pos()} drag_offset={getattr(self, '_drag_position', None)} buttons={event.buttons()}")
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            try:
+                gp = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
+            except Exception:
+                gp = event.globalPos()
+            new_pos = gp - self._drag_position
+            print(f"[DBG FloatingWidget] moving to {new_pos}")
+            self.move(new_pos)
+            self._saved_pos = self.pos()
+            event.accept()
+        else:
             super().mouseMoveEvent(event)
 
 
@@ -111,6 +131,12 @@ class FloatingWidget(QWidget):
         self._drag_position = QPoint()
         self._setup_window()
         self._setup_ui()
+        # Install event filters on all child widgets so clicks anywhere in the window can be used to drag it.
+        try:
+            for child in self.findChildren(QWidget) or []:
+                child.installEventFilter(self)
+        except Exception:
+            pass
         # Tray and floating button (initialized after UI)
         # Set up tray and floating button independently so one failing doesn't prevent the other.
         try:
@@ -118,14 +144,52 @@ class FloatingWidget(QWidget):
         except Exception as e:
             # Log failure so debugging shows why tray initialization failed.
             import traceback
+
             print(f"[DBG main_window] _setup_tray failed: {e}")
             traceback.print_exc()
         try:
             self._setup_floating_button()
         except Exception as e:
             import traceback
+
             print(f"[DBG main_window] _setup_floating_button failed: {e}")
             traceback.print_exc()
+        try:
+            # Attempt to register a global F8 hotkey to mirror the UI hint.
+            # Runs only if `keyboard` package is available and permissions allow it.
+            self._setup_global_hotkey()
+        except Exception as e:
+            print(f"[DBG main_window] _setup_global_hotkey failed: {e}")
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+
+        if event.type() in (
+            QEvent.MouseButtonPress,
+            QEvent.MouseMove,
+            QEvent.MouseButtonRelease,
+        ):
+            # Forward mouse events to this widget's handlers so dragging works when clicking anywhere.
+            try:
+                if event.type() == QEvent.MouseButtonPress:
+                    self.mousePressEvent(event)
+                elif event.type() == QEvent.MouseMove:
+                    self.mouseMoveEvent(event)
+                else:
+                    # persist position on release
+                    try:
+                        self._saved_geometry = self.geometry()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # Swallow the event to avoid child widgets interrupting the drag sequence.
+            try:
+                event.accept()
+            except Exception:
+                pass
+            return True
+        return super().eventFilter(obj, event)
 
     def _setup_window(self):
         self.setWindowTitle("Voice Translator")
@@ -253,6 +317,11 @@ class FloatingWidget(QWidget):
                 lambda: self.status_label.setText("✅ Ready - Press F8 to record")
             )
             signals.status_update.connect(lambda s: self.status_label.setText(s))
+            # Allow external toggles (e.g. global hotkey) to toggle the record button safely
+            try:
+                signals.toggle_recording.connect(lambda: self.record_button.toggle())
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -276,6 +345,26 @@ class FloatingWidget(QWidget):
         # last saved position when shown. Initially keep it hidden.
         self.floating_button.hide()
 
+    def _setup_global_hotkey(self):
+        """Register a global F8 hotkey that toggles recording via signals.toggle_recording.
+
+        This is best-effort: if the `keyboard` package is unavailable or the OS denies
+        the permission (e.g., macOS accessibility), this will log and continue.
+        """
+        try:
+            import keyboard  # type: ignore
+        except Exception:
+            print("[DBG main_window] keyboard module not available; global hotkey disabled")
+            return
+        try:
+            # Register F8 to toggle recording; store handler id for cleanup
+            handler = keyboard.add_hotkey("f8", lambda: signals.toggle_recording.emit())
+            self._keyboard = keyboard
+            self._keyboard_hotkey = handler
+            print("[DBG main_window] Registered global hotkey F8")
+        except Exception as e:
+            print(f"[DBG main_window] Failed to register global hotkey: {e}")
+
     def _show_window(self):
         """Show and focus the main window; hide floating button."""
         self.show()
@@ -283,6 +372,7 @@ class FloatingWidget(QWidget):
         # calling it on those platforms to prevent noisy warnings.
         try:
             from PySide6.QtGui import QGuiApplication
+
             if QGuiApplication.platformName() != "offscreen":
                 try:
                     self.raise_()
@@ -296,7 +386,9 @@ class FloatingWidget(QWidget):
             self.activateWindow()
         except Exception:
             pass
-        print(f"[DBG main_window] _show_window: saved_pos={getattr(self, '_saved_pos', None)} saved_size={getattr(self, '_saved_size', None)}")
+        print(
+            f"[DBG main_window] _show_window: saved_pos={getattr(self, '_saved_pos', None)} saved_size={getattr(self, '_saved_size', None)}"
+        )
         # Restore previous position/size if available
         try:
             if getattr(self, "_saved_pos", None):
@@ -315,6 +407,16 @@ class FloatingWidget(QWidget):
 
     def _quit_app(self):
         """Quit the application."""
+        # Clean up global hotkey if registered
+        try:
+            if getattr(self, "_keyboard", None):
+                try:
+                    self._keyboard.remove_hotkey(getattr(self, "_keyboard_hotkey", "f8"))
+                    print("[DBG main_window] Removed global hotkey F8")
+                except Exception:
+                    pass
+        except Exception:
+            pass
         from PySide6.QtWidgets import QApplication
 
         QApplication.quit()
@@ -331,23 +433,33 @@ class FloatingWidget(QWidget):
         except Exception:
             self._saved_pos = None
             self._saved_size = None
-        print(f"[DBG main_window] _minimize_to_floating: saved_pos={getattr(self,'_saved_pos',None)} saved_size={getattr(self,'_saved_size',None)}")
+        print(
+            f"[DBG main_window] _minimize_to_floating: saved_pos={getattr(self,'_saved_pos',None)} saved_size={getattr(self,'_saved_size',None)}"
+        )
         # Hide main window and show floating button + tray notification
-        print(f"[DBG main_window] _minimize_to_floating: has_floating_button={hasattr(self, 'floating_button')} floating_button_obj={getattr(self, 'floating_button', None)}")
+        print(
+            f"[DBG main_window] _minimize_to_floating: has_floating_button={hasattr(self, 'floating_button')} floating_button_obj={getattr(self, 'floating_button', None)}"
+        )
         self.hide()
-        print("[DBG main_window] main window hidden, attempting to show floating_button")
+        print(
+            "[DBG main_window] main window hidden, attempting to show floating_button"
+        )
         try:
             # If the floating button was moved by the user previously, restore
             # that position; otherwise, position it at bottom-right.
             if getattr(self, "floating_button", None) is None:
-                print("[DBG main_window] no floating_button attribute - skipping show()")
+                print(
+                    "[DBG main_window] no floating_button attribute - skipping show()"
+                )
             else:
                 try:
                     if getattr(self.floating_button, "_saved_pos", None):
                         try:
                             self.floating_button.move(self.floating_button._saved_pos)
                         except Exception:
-                            print("[DBG main_window] floating_button.move(saved_pos) failed, positioning bottom-right")
+                            print(
+                                "[DBG main_window] floating_button.move(saved_pos) failed, positioning bottom-right"
+                            )
                             self.floating_button.position_bottom_right()
                     else:
                         self.floating_button.position_bottom_right()
@@ -481,7 +593,9 @@ class FloatingWidget(QWidget):
                 self._drag_position = gp - self.pos()
             except Exception:
                 self._drag_position = gp - self.frameGeometry().topLeft()
-            print(f"[DBG main_window] mousePress gp={gp} drag_offset={self._drag_position}")
+            print(
+                f"[DBG main_window] mousePress gp={gp} drag_offset={self._drag_position}"
+            )
             event.accept()
         else:
             super().mousePressEvent(event)
@@ -494,7 +608,9 @@ class FloatingWidget(QWidget):
                 gp = event.globalPos()
             new_pos = gp - self._drag_position
             self.move(new_pos)
-            print(f"[DBG main_window] mouseMove moved_to={new_pos} saved_pos-> {self.pos()}")
+            print(
+                f"[DBG main_window] mouseMove moved_to={new_pos} saved_pos-> {self.pos()}"
+            )
             try:
                 self._saved_pos = self.pos()
                 self._saved_size = self.size()
@@ -509,7 +625,9 @@ class FloatingWidget(QWidget):
         try:
             self._saved_pos = self.pos()
             self._saved_size = self.size()
-            print(f"[DBG main_window] moveEvent persisted pos={self._saved_pos} size={self._saved_size}")
+            print(
+                f"[DBG main_window] moveEvent persisted pos={self._saved_pos} size={self._saved_size}"
+            )
         except Exception:
             pass
         super().moveEvent(event)
@@ -519,7 +637,9 @@ class FloatingWidget(QWidget):
         try:
             self._saved_pos = self.pos()
             self._saved_size = self.size()
-            print(f"[DBG main_window] resizeEvent persisted pos={self._saved_pos} size={self._saved_size}")
+            print(
+                f"[DBG main_window] resizeEvent persisted pos={self._saved_pos} size={self._saved_size}"
+            )
         except Exception:
             pass
         super().resizeEvent(event)

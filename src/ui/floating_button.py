@@ -121,7 +121,9 @@ class FloatingRecordButton(QWidget):
                     self._drag_position = gp - self.pos()
                 except Exception:
                     self._drag_position = gp - self.frameGeometry().topLeft()
-                print(f"[DBG floating_button] restore_mousePress gp={gp} drag_offset={self._drag_position}")
+                print(
+                    f"[DBG floating_button] restore_mousePress gp={gp} drag_offset={self._drag_position}"
+                )
                 event.accept()
 
         def _restore_mouseMove(event: QMouseEvent):
@@ -179,7 +181,9 @@ class FloatingRecordButton(QWidget):
                     self._drag_position = gp - self.pos()
                 except Exception:
                     self._drag_position = gp - self.frameGeometry().topLeft()
-                print(f"[DBG floating_button] button_mousePress gp={gp} drag_offset={self._drag_position}")
+                print(
+                    f"[DBG floating_button] button_mousePress gp={gp} drag_offset={self._drag_position}"
+                )
                 event.accept()
 
         def _button_mouseMove(event: QMouseEvent):
@@ -242,7 +246,11 @@ class FloatingRecordButton(QWidget):
                         orig(event)
                 except Exception:
                     pass
-            return False  # don't swallow event; let button behave normally
+            try:
+                event.accept()
+            except Exception:
+                pass
+            return True  # swallow event after forwarding to avoid child stealing events
         return super().eventFilter(obj, event)
 
     def _on_toggled(self, checked: bool):
@@ -268,7 +276,9 @@ class FloatingRecordButton(QWidget):
                 self._drag_position = gp - self.pos()
             except Exception:
                 self._drag_position = gp - self.frameGeometry().topLeft()
-            print(f"[DBG floating_button] mousePress gp={gp} drag_offset={self._drag_position}")
+            print(
+                f"[DBG floating_button] mousePress gp={gp} drag_offset={self._drag_position}"
+            )
             event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent):
@@ -279,7 +289,9 @@ class FloatingRecordButton(QWidget):
                 gp = event.globalPos()
             new_pos = gp - self._drag_position
             self.move(new_pos)
-            print(f"[DBG floating_button] mouseMove moved_to={new_pos} saved_pos-> {self.pos()}")
+            print(
+                f"[DBG floating_button] mouseMove moved_to={new_pos} saved_pos-> {self.pos()}"
+            )
             try:
                 self._saved_pos = self.pos()
             except Exception:
@@ -307,10 +319,14 @@ class FloatingRecordButton(QWidget):
         try:
             self.restore_button.move(self.width() - 24, 4)
             if getattr(self, "_saved_pos", None):
-                print(f"[DBG floating_button] showEvent restoring saved_pos={self._saved_pos}")
+                print(
+                    f"[DBG floating_button] showEvent restoring saved_pos={self._saved_pos}"
+                )
                 self.move(self._saved_pos)
             else:
-                print("[DBG floating_button] showEvent no saved_pos, positioning bottom-right")
+                print(
+                    "[DBG floating_button] showEvent no saved_pos, positioning bottom-right"
+                )
                 self.position_bottom_right()
         except Exception:
             pass

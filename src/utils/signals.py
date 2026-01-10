@@ -17,6 +17,8 @@ class AppSignals(QObject):
     # Recording signals
     recording_started = Signal()
     recording_stopped = Signal()
+    # Signal used to toggle recording from other threads (e.g. global hotkey)
+    toggle_recording = Signal()
 
     # Transcription signals
     transcription_started = Signal()
