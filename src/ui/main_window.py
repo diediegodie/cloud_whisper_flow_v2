@@ -216,6 +216,12 @@ class FloatingWidget(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
+        # Restore previous geometry if available
+        try:
+            if getattr(self, "_saved_geometry", None):
+                self.setGeometry(self._saved_geometry)
+        except Exception:
+            pass
         try:
             self.floating_button.hide()
         except Exception:
@@ -228,7 +234,15 @@ class FloatingWidget(QWidget):
         QApplication.quit()
 
     def _minimize_to_floating(self):
-        """Minimize the app into the floating button instead of normal minimize."""
+        """Minimize the app into the floating button instead of normal minimize.
+
+        Save current geometry so it can be restored when reopening the window.
+        """
+        # Save geometry to restore later
+        try:
+            self._saved_geometry = self.geometry()
+        except Exception:
+            self._saved_geometry = None
         # Hide main window and show floating button + tray notification
         self.hide()
         try:

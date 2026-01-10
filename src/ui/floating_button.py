@@ -164,3 +164,19 @@ class FloatingRecordButton(QWidget):
         x = screen.width() - 90
         y = screen.height() - 90
         self.move(x, y)
+
+    def resizeEvent(self, event):
+        """Keep the small restore button positioned at top-right when resized."""
+        try:
+            self.restore_button.move(self.width() - 24, 4)
+        except Exception:
+            pass
+        super().resizeEvent(event)
+
+    def showEvent(self, event):
+        """Ensure restore button is correctly positioned when shown."""
+        try:
+            self.restore_button.move(self.width() - 24, 4)
+        except Exception:
+            pass
+        super().showEvent(event)
