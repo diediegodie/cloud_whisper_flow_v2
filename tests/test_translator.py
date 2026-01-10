@@ -3,6 +3,7 @@
 Note: these tests perform real network calls and require an internet
 connection. They may be skipped in CI environments.
 """
+
 from src.core.translator import Translator, TranslatorError
 
 

@@ -82,7 +82,15 @@ class FloatingRecordButton(QWidget):
         self.restore_button.clicked.connect(lambda: self.show_requested.emit())
         # Position in top-right corner of the floating widget
         self.restore_button.move(self.width() - 24, 4)
-        self.restore_button.raise_()
+        # raise() may be unsupported on some QPA platforms (offscreen).
+        try:
+            from PySide6.QtGui import QGuiApplication
+
+            if QGuiApplication.platformName() != "offscreen":
+                self.restore_button.raise_()
+        except Exception:
+            # If platformName is unavailable or raise_() fails, silently continue
+            pass
 
         # Install event filters so child widgets forward mouse events to the
         # floating widget. This ensures dragging works when clicking anywhere

@@ -105,7 +105,9 @@ class TranslationWorker(QThread):
     Emits translation-related signals via `signals`.
     """
 
-    def __init__(self, translator: Translator, text: str, target_language: str = "English") -> None:
+    def __init__(
+        self, translator: Translator, text: str, target_language: str = "English"
+    ) -> None:
         super().__init__()
         self.translator = translator
         self.text = text
