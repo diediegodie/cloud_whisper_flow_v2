@@ -125,3 +125,20 @@ class Transcriber:
             raise
         except Exception as e:
             raise TranscriberError(f"Transcription failed: {e}")
+
+    def feed_pcm(self, pcm_bytes: bytes) -> str:
+        """Feed raw PCM int16 bytes (mono, sample_rate) and return transcription.
+
+        This is a small injection API intended for testing and CI where a real
+        microphone is unavailable. Expects raw little-endian int16 PCM bytes
+        matching self.sample_rate and mono channels.
+        """
+        if not self.is_model_loaded():
+            raise TranscriberError("Model not loaded. Call load_model() first.")
+        if not pcm_bytes:
+            return ""
+        try:
+            arr = np.frombuffer(pcm_bytes, dtype=np.int16)
+            return self.transcribe(arr)
+        except Exception as e:
+            raise TranscriberError(f"feed_pcm failed: {e}")

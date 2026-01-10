@@ -136,9 +136,9 @@ class FloatingRecordButton(DraggableWidget):
                 new_pos = gp - self._drag_position
                 self.move(new_pos)
                 print(f"[DBG floating_button] restore_mouseMove moved_to={new_pos}")
-                # persist position
+                # persist position and size
                 try:
-                    self._saved_pos = self.pos()
+                    self._persist_geometry()
                 except Exception:
                     pass
                 event.accept()
@@ -197,7 +197,7 @@ class FloatingRecordButton(DraggableWidget):
                 self.move(new_pos)
                 print(f"[DBG floating_button] button_mouseMove moved_to={new_pos}")
                 try:
-                    self._saved_pos = self.pos()
+                    self._persist_geometry()
                 except Exception:
                     pass
                 event.accept()
@@ -245,8 +245,8 @@ class FloatingRecordButton(DraggableWidget):
             else:
                 # MouseButtonRelease
                 try:
-                    # persist last position on release
-                    self._saved_pos = self.pos()
+                    # persist last position/size on release
+                    self._persist_geometry()
                 except Exception:
                     pass
                 try:
@@ -310,7 +310,7 @@ class FloatingRecordButton(DraggableWidget):
                 f"[DBG floating_button] mouseMove moved_to={new_pos} saved_pos-> {self.pos()}"
             )
             try:
-                self._saved_pos = self.pos()
+                self._persist_geometry()
             except Exception:
                 pass
             event.accept()
@@ -340,7 +340,10 @@ class FloatingRecordButton(DraggableWidget):
                 print(
                     f"[DBG floating_button] showEvent restoring saved_pos={saved_pos}"
                 )
-                self.move(saved_pos)
+                try:
+                    self._restore_geometry()
+                except Exception:
+                    pass
             else:
                 print(
                     "[DBG floating_button] showEvent no saved_pos, positioning bottom-right"

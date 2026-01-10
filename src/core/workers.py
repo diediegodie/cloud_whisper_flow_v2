@@ -98,6 +98,36 @@ class RecordingWorker(QThread):
         finally:
             self._mutex.unlock()
 
+    def process_pcm(self, pcm_bytes: bytes) -> None:
+        """Process externally provided PCM bytes through the Transcriber.
+
+        This allows piping audio into the running worker (e.g., from a FIFO or
+        external tool) without using the microphone stack. Emits the same
+        transcription signals as the regular recording flow.
+        """
+        try:
+            if not pcm_bytes:
+                signals.transcription_error.emit("No audio provided")
+                return
+
+            signals.transcription_started.emit()
+            signals.status_update.emit("Processing...")
+
+            # Prefer feed_pcm injection API if available
+            if hasattr(self.transcriber, "feed_pcm"):
+                text = self.transcriber.feed_pcm(pcm_bytes)
+            else:
+                # Fallback: convert bytes to numpy array and call transcribe
+                arr = np.frombuffer(pcm_bytes, dtype=np.int16)
+                text = self.transcriber.transcribe(arr)
+
+            signals.transcription_complete.emit(text)
+            signals.status_update.emit("Ready")
+        except TranscriberError as e:
+            signals.transcription_error.emit(f"Transcription error: {e}")
+        except Exception as e:
+            signals.transcription_error.emit(f"Unexpected error: {e}")
+
 
 class TranslationWorker(QThread):
     """Worker thread to perform text translation in background.
