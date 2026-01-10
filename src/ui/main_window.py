@@ -1,3 +1,5 @@
+from typing import Optional
+
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -21,6 +23,10 @@ from .styles import (
 from .tray_icon import TrayIcon
 from .floating_button import FloatingRecordButton
 
+from src.core.transcriber import Transcriber, TranscriberError
+from src.core.workers import RecordingWorker
+from src.utils.signals import signals
+
 
 class TitleBar(QWidget):
     def __init__(self, parent: QWidget):
@@ -30,7 +36,7 @@ class TitleBar(QWidget):
         # Install event filters on child widgets so clicks anywhere on the
         # title bar can be used to drag the parent window.
         try:
-            for child in (self.findChildren(QWidget) or []):
+            for child in self.findChildren(QWidget) or []:
                 child.installEventFilter(self)
         except Exception:
             pass
@@ -38,7 +44,11 @@ class TitleBar(QWidget):
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
 
-        if event.type() in (QEvent.MouseButtonPress, QEvent.MouseMove, QEvent.MouseButtonRelease):
+        if event.type() in (
+            QEvent.MouseButtonPress,
+            QEvent.MouseMove,
+            QEvent.MouseButtonRelease,
+        ):
             # Forward mouse events to parent window for dragging behavior.
             try:
                 if event.type() == QEvent.MouseButtonPress:
@@ -48,7 +58,9 @@ class TitleBar(QWidget):
                 else:
                     # persist position on release
                     try:
-                        self.parent_window._saved_geometry = self.parent_window.geometry()
+                        self.parent_window._saved_geometry = (
+                            self.parent_window.geometry()
+                        )
                     except Exception:
                         pass
             except Exception:
@@ -218,6 +230,24 @@ class FloatingWidget(QWidget):
         record_row.addStretch()
         self.main_layout.addLayout(record_row)
 
+        # Transcriber and worker (initialized when recording starts)
+        self.transcriber: Optional[Transcriber] = None
+        self.worker: Optional[RecordingWorker] = None
+
+        # Connect global signals to UI handlers
+        try:
+            signals.transcription_complete.connect(self._on_transcription_complete)
+            signals.transcription_error.connect(self._on_transcription_error)
+            signals.recording_started.connect(
+                lambda: self.status_label.setText("🔴 Recording...")
+            )
+            signals.recording_stopped.connect(
+                lambda: self.status_label.setText("✅ Ready - Press F8 to record")
+            )
+            signals.status_update.connect(lambda s: self.status_label.setText(s))
+        except Exception:
+            pass
+
     # --- Tray & Floating Button integration ---
     def _setup_tray(self):
         """Set up system tray icon and connect signals."""
@@ -243,6 +273,7 @@ class FloatingWidget(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
+        print(f"[DBG main_window] _show_window: saved_pos={getattr(self, '_saved_pos', None)} saved_size={getattr(self, '_saved_size', None)}")
         # Restore previous position/size if available
         try:
             if getattr(self, "_saved_pos", None):
@@ -270,11 +301,14 @@ class FloatingWidget(QWidget):
 
         Save current geometry so it can be restored when reopening the window.
         """
-        # Save geometry to restore later
+        # Save position/size to restore later
         try:
-            self._saved_geometry = self.geometry()
+            self._saved_pos = self.pos()
+            self._saved_size = self.size()
         except Exception:
-            self._saved_geometry = None
+            self._saved_pos = None
+            self._saved_size = None
+        print(f"[DBG main_window] _minimize_to_floating: saved_pos={getattr(self,'_saved_pos',None)} saved_size={getattr(self,'_saved_size',None)}")
         # Hide main window and show floating button + tray notification
         self.hide()
         try:
@@ -343,9 +377,7 @@ class FloatingWidget(QWidget):
         try:
             if getattr(self, "record_button", None) and self.record_button.isChecked():
                 self.status_label.setText("🔴 Recording...")
-                self.status_label.setStyleSheet(
-                    STATUS_RECORDING + " font-size: 14px;"
-                )
+                self.status_label.setStyleSheet(STATUS_RECORDING + " font-size: 14px;")
             else:
                 self.status_label.setText("✅ Ready - Press F8 to record")
                 self.status_label.setStyleSheet(STATUS_READY + " font-size: 14px;")
@@ -357,18 +389,52 @@ class FloatingWidget(QWidget):
             self.record_button.setText("⏹ STOP")
             self.record_button.setStyleSheet(RECORD_BUTTON_RECORDING)
             try:
+                self.status_label.setText("⏳ Loading model...")
+                # Create and load model (may block briefly)
+                self.transcriber = Transcriber()
+                try:
+                    self.transcriber.load_model()
+                except TranscriberError as e:
+                    self.status_label.setText(f"Model error: {e}")
+                    self.record_button.setChecked(False)
+                    return
+                # Start worker
+                self.worker = RecordingWorker(self.transcriber)
+                self.worker.start()
                 self.status_label.setText("🔴 Recording...")
                 self.status_label.setStyleSheet(STATUS_RECORDING + " font-size: 14px;")
-            except Exception:
-                pass
+            except Exception as e:
+                self.status_label.setText(f"Unexpected: {e}")
+                self.record_button.setChecked(False)
         else:
             self.record_button.setText("⏺ REC")
             self.record_button.setStyleSheet(RECORD_BUTTON_IDLE)
             try:
-                self.status_label.setText("✅ Ready - Press F8 to record")
+                # Signal worker to stop; worker will emit transcription_complete when done
+                if getattr(self, "worker", None):
+                    try:
+                        self.worker.stop_recording()
+                    except Exception:
+                        pass
+                self.status_label.setText("Processing...")
                 self.status_label.setStyleSheet(STATUS_READY + " font-size: 14px;")
             except Exception:
                 pass
+
+    def _on_transcription_complete(self, text: str):
+        try:
+            self.portuguese_text.setPlainText(text)
+            self.status_label.setText("✅ Ready - Press F8 to record")
+            self.status_label.setStyleSheet(STATUS_READY + " font-size: 14px;")
+        except Exception:
+            pass
+
+    def _on_transcription_error(self, msg: str):
+        try:
+            self.status_label.setText(f"Error: {msg}")
+            self.status_label.setStyleSheet(STATUS_READY + " font-size: 14px;")
+        except Exception:
+            pass
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -382,6 +448,7 @@ class FloatingWidget(QWidget):
                 self._drag_position = gp - self.pos()
             except Exception:
                 self._drag_position = gp - self.frameGeometry().topLeft()
+            print(f"[DBG main_window] mousePress gp={gp} drag_offset={self._drag_position}")
             event.accept()
         else:
             super().mousePressEvent(event)
@@ -394,6 +461,7 @@ class FloatingWidget(QWidget):
                 gp = event.globalPos()
             new_pos = gp - self._drag_position
             self.move(new_pos)
+            print(f"[DBG main_window] mouseMove moved_to={new_pos} saved_pos-> {self.pos()}")
             try:
                 self._saved_pos = self.pos()
                 self._saved_size = self.size()
@@ -408,6 +476,7 @@ class FloatingWidget(QWidget):
         try:
             self._saved_pos = self.pos()
             self._saved_size = self.size()
+            print(f"[DBG main_window] moveEvent persisted pos={self._saved_pos} size={self._saved_size}")
         except Exception:
             pass
         super().moveEvent(event)
@@ -417,6 +486,7 @@ class FloatingWidget(QWidget):
         try:
             self._saved_pos = self.pos()
             self._saved_size = self.size()
+            print(f"[DBG main_window] resizeEvent persisted pos={self._saved_pos} size={self._saved_size}")
         except Exception:
             pass
         super().resizeEvent(event)
