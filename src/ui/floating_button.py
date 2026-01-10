@@ -84,6 +84,56 @@ class FloatingRecordButton(QWidget):
         self.restore_button.move(self.width() - 24, 4)
         self.restore_button.raise_()
 
+        # Allow dragging the floating widget when interacting with the small restore button.
+        orig_restore_press = getattr(self.restore_button, "mousePressEvent", None)
+        orig_restore_move = getattr(self.restore_button, "mouseMoveEvent", None)
+        orig_restore_release = getattr(self.restore_button, "mouseReleaseEvent", None)
+
+        def _restore_mousePress(event: QMouseEvent):
+            if callable(orig_restore_press):
+                try:
+                    orig_restore_press(event)
+                except Exception:
+                    pass
+            if event.button() == Qt.MouseButton.LeftButton:
+                try:
+                    gp = event.globalPosition().toPoint()
+                except Exception:
+                    gp = event.globalPos()
+                self._drag_position = gp - self.frameGeometry().topLeft()
+                event.accept()
+
+        def _restore_mouseMove(event: QMouseEvent):
+            if event.buttons() & Qt.MouseButton.LeftButton:
+                try:
+                    gp = event.globalPosition().toPoint()
+                except Exception:
+                    gp = event.globalPos()
+                self.move(gp - self._drag_position)
+                # persist position
+                try:
+                    self._saved_pos = self.pos()
+                except Exception:
+                    pass
+                event.accept()
+            else:
+                if callable(orig_restore_move):
+                    try:
+                        orig_restore_move(event)
+                    except Exception:
+                        pass
+
+        def _restore_mouseRelease(event: QMouseEvent):
+            if callable(orig_restore_release):
+                try:
+                    orig_restore_release(event)
+                except Exception:
+                    pass
+
+        self.restore_button.mousePressEvent = _restore_mousePress
+        self.restore_button.mouseMoveEvent = _restore_mouseMove
+        self.restore_button.mouseReleaseEvent = _restore_mouseRelease
+
         # Forward mouse press/move events from the inner button to the
         # floating widget so users can drag by the button itself.
         # Preserve original handlers if present.
@@ -112,6 +162,10 @@ class FloatingRecordButton(QWidget):
                 except Exception:
                     gp = event.globalPos()
                 self.move(gp - self._drag_position)
+                try:
+                    self._saved_pos = self.pos()
+                except Exception:
+                    pass
                 event.accept()
             else:
                 if callable(orig_move):
@@ -155,7 +209,15 @@ class FloatingRecordButton(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if event.buttons() & Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self._drag_position)
+            try:
+                gp = event.globalPosition().toPoint()
+            except Exception:
+                gp = event.globalPos()
+            self.move(gp - self._drag_position)
+            try:
+                self._saved_pos = self.pos()
+            except Exception:
+                pass
             event.accept()
 
     def position_bottom_right(self):
@@ -174,9 +236,13 @@ class FloatingRecordButton(QWidget):
         super().resizeEvent(event)
 
     def showEvent(self, event):
-        """Ensure restore button is correctly positioned when shown."""
+        """Ensure restore button is correctly positioned when shown and restore saved position."""
         try:
             self.restore_button.move(self.width() - 24, 4)
+            if getattr(self, "_saved_pos", None):
+                self.move(self._saved_pos)
+            else:
+                self.position_bottom_right()
         except Exception:
             pass
         super().showEvent(event)

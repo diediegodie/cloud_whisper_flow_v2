@@ -203,12 +203,12 @@ class FloatingWidget(QWidget):
         """Create floating record button used when app is minimized."""
         self.floating_button = FloatingRecordButton()
         self.floating_button.toggled.connect(self._on_floating_button_toggled)
-        # Allow double-click on floating button to restore the main window
         try:
             self.floating_button.show_requested.connect(self._show_window)
         except Exception:
             pass
-        self.floating_button.position_bottom_right()
+        # Do not force a position here; the floating button will restore its
+        # last saved position when shown. Initially keep it hidden.
         self.floating_button.hide()
 
     def _show_window(self):
@@ -246,8 +246,15 @@ class FloatingWidget(QWidget):
         # Hide main window and show floating button + tray notification
         self.hide()
         try:
-            # Re-position before showing in case screen geometry changed
-            self.floating_button.position_bottom_right()
+            # If the floating button was moved by the user previously, restore
+            # that position; otherwise, position it at bottom-right.
+            if getattr(self.floating_button, "_saved_pos", None):
+                try:
+                    self.floating_button.move(self.floating_button._saved_pos)
+                except Exception:
+                    self.floating_button.position_bottom_right()
+            else:
+                self.floating_button.position_bottom_right()
             self.floating_button.show()
         except Exception:
             pass
@@ -351,9 +358,29 @@ class FloatingWidget(QWidget):
                 gp = event.globalPos()
             new_pos = gp - self._drag_position
             self.move(new_pos)
+            try:
+                self._saved_geometry = self.geometry()
+            except Exception:
+                pass
             event.accept()
         else:
             super().mouseMoveEvent(event)
+
+    def moveEvent(self, event):
+        """Persist geometry whenever the window is moved."""
+        try:
+            self._saved_geometry = self.geometry()
+        except Exception:
+            pass
+        super().moveEvent(event)
+
+    def resizeEvent(self, event):
+        """Persist geometry whenever the window is resized."""
+        try:
+            self._saved_geometry = self.geometry()
+        except Exception:
+            pass
+        super().resizeEvent(event)
 
 
 if __name__ == "__main__":
