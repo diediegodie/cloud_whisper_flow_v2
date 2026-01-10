@@ -48,33 +48,6 @@ class DraggableWidget(QWidget):
             except Exception:
                 pass
 
-    def _persist_geometry(self):
-        """Persist current position and size into internal saved slots."""
-        try:
-            self._saved_pos = self.pos()
-        except Exception:
-            self._saved_pos = None
-        try:
-            self._saved_size = self.size()
-        except Exception:
-            self._saved_size = None
-
-    def _restore_geometry(self):
-        """Restore position and size if previously persisted."""
-        from PySide6.QtCore import QPoint, QSize
-        pos = getattr(self, "_saved_pos", None)
-        size = getattr(self, "_saved_size", None)
-        if isinstance(pos, QPoint):
-            try:
-                self.move(pos)
-            except Exception:
-                pass
-        if isinstance(size, QSize):
-            try:
-                self.resize(size)
-            except Exception:
-                pass
-
     def _request_system_move(self) -> bool:
         """Request Wayland compositor-managed move if available.
         

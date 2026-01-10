@@ -35,51 +35,6 @@ class TitleBar(QWidget):
         # Cast parent to concrete FloatingWidget so static checkers know available attributes
         self.parent_window = cast("FloatingWidget", parent)
         self._setup_ui()
-        # Install event filters on child widgets so clicks anywhere on the
-        # title bar can be used to drag the parent window.
-        try:
-            for child in self.findChildren(QWidget) or []:
-                child.installEventFilter(self)
-        except Exception:
-            pass
-
-    def eventFilter(self, watched, event):
-        from PySide6.QtCore import QEvent
-        from PySide6.QtGui import QMouseEvent
-
-        if event.type() in (
-            QEvent.Type.MouseButtonPress,
-            QEvent.Type.MouseMove,
-            QEvent.Type.MouseButtonRelease,
-        ):
-            # Forward mouse events to parent window for dragging behavior.
-            try:
-                if event.type() == QEvent.Type.MouseButtonPress:
-                    if isinstance(event, QMouseEvent):
-                        try:
-                            self.parent_window.mousePressEvent(event)
-                        except Exception:
-                            pass
-                elif event.type() == QEvent.Type.MouseMove:
-                    if isinstance(event, QMouseEvent):
-                        try:
-                            self.parent_window.mouseMoveEvent(event)
-                        except Exception:
-                            pass
-                else:
-                    # persist position on release - parent handles persistence
-                    try:
-                        pass
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            try:
-                event.accept()
-            except Exception:
-                pass
-            return True
-        return super().eventFilter(watched, event)
 
     def _setup_ui(self):
         layout = QHBoxLayout(self)
@@ -137,15 +92,9 @@ class TitleBar(QWidget):
 class FloatingWidget(DraggableWidget):
     def __init__(self):
         super().__init__()
-        self._drag_position = QPoint()
+        # DraggableWidget handles: _drag_position, _saved_pos, _saved_size
         self._setup_window()
         self._setup_ui()
-        # Install event filters on all child widgets so clicks anywhere in the window can be used to drag it.
-        try:
-            for child in self.findChildren(QWidget) or []:
-                child.installEventFilter(self)
-        except Exception:
-            pass
         # Tray and floating button (initialized after UI)
         # Set up tray and floating button independently so one failing doesn't prevent the other.
         try:
@@ -169,45 +118,6 @@ class FloatingWidget(DraggableWidget):
             self._setup_global_hotkey()
         except Exception as e:
             print(f"[DBG main_window] _setup_global_hotkey failed: {e}")
-
-    def eventFilter(self, watched, event):
-        from PySide6.QtCore import QEvent
-        from PySide6.QtGui import QMouseEvent
-
-        if event.type() in (
-            QEvent.Type.MouseButtonPress,
-            QEvent.Type.MouseMove,
-            QEvent.Type.MouseButtonRelease,
-        ):
-            # Forward mouse events to this widget's handlers so dragging works when clicking anywhere.
-            try:
-                if event.type() == QEvent.Type.MouseButtonPress:
-                    if isinstance(event, QMouseEvent):
-                        try:
-                            self.mousePressEvent(event)
-                        except Exception:
-                            pass
-                elif event.type() == QEvent.Type.MouseMove:
-                    if isinstance(event, QMouseEvent):
-                        try:
-                            self.mouseMoveEvent(event)
-                        except Exception:
-                            pass
-                else:
-                    # persist position on release
-                    try:
-                        self._saved_geometry = self.geometry()
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            # Swallow the event to avoid child widgets interrupting the drag sequence.
-            try:
-                event.accept()
-            except Exception:
-                pass
-            return True
-        return super().eventFilter(watched, event)
 
     def _setup_window(self):
         self.setWindowTitle("Voice Translator")
@@ -581,9 +491,10 @@ class FloatingWidget(DraggableWidget):
             self.record_button.setStyleSheet(RECORD_BUTTON_IDLE)
             try:
                 # Signal worker to stop; worker will emit transcription_complete when done
-                if getattr(self, "worker", None):
+                worker = getattr(self, "worker", None)
+                if worker is not None:
                     try:
-                        self.worker.stop_recording()
+                        worker.stop_recording()
                     except Exception:
                         pass
                 self.status_label.setText("Processing...")
@@ -608,24 +519,18 @@ class FloatingWidget(DraggableWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            # store offset between mouse global pos and window top-left
+            # Get global mouse position
             try:
                 gp = event.globalPosition().toPoint()
             except Exception:
                 gp = event.globalPos()
-            # Use window position instead of frameGeometry to compute offset
-            try:
-                self._drag_position = gp - self.pos()
-            except Exception:
-                self._drag_position = gp - self.frameGeometry().topLeft()
+            # Use DraggableWidget's _get_drag_offset helper
+            self._drag_position = self._get_drag_offset(gp)
             print(
                 f"[DBG main_window] mousePress gp={gp} drag_offset={self._drag_position}"
             )
-            # On some platforms (Wayland) clients must request a system move from the compositor
-            try:
-                self._request_system_move()
-            except Exception:
-                pass
+            # Request system move for Wayland support
+            self._request_system_move()
             event.accept()
         else:
             super().mousePressEvent(event)
@@ -639,19 +544,8 @@ class FloatingWidget(DraggableWidget):
             new_pos = gp - self._drag_position
             self.move(new_pos)
             print(
-                f"[DBG main_window] mouseMove moved_to={new_pos} saved_pos-> {self.pos()}"
+                f"[DBG main_window] mouseMove moved_to={new_pos}"
             )
-            try:
-                try:
-                    self._persist_position()
-                except Exception:
-                    self._saved_pos = self.pos()
-                try:
-                    self._saved_size = self.size()
-                except Exception:
-                    self._saved_size = None
-            except Exception:
-                pass
             event.accept()
         else:
             super().mouseMoveEvent(event)
@@ -659,14 +553,12 @@ class FloatingWidget(DraggableWidget):
     def moveEvent(self, event):
         """Persist position whenever the window is moved."""
         try:
-            try:
-                self._persist_position()
-            except Exception:
-                self._saved_pos = self.pos()
+            self._persist_position()
+            # Also persist size for consistency with _show_window expectations
             try:
                 self._saved_size = self.size()
             except Exception:
-                self._saved_size = None
+                pass
             print(
                 f"[DBG main_window] moveEvent persisted pos={getattr(self, '_saved_pos', None)} size={getattr(self, '_saved_size', None)}"
             )
@@ -677,14 +569,12 @@ class FloatingWidget(DraggableWidget):
     def resizeEvent(self, event):
         """Persist geometry whenever the window is resized."""
         try:
-            try:
-                self._persist_position()
-            except Exception:
-                self._saved_pos = self.pos()
+            self._persist_position()
+            # Also persist size
             try:
                 self._saved_size = self.size()
             except Exception:
-                self._saved_size = None
+                pass
             print(
                 f"[DBG main_window] resizeEvent persisted pos={getattr(self, '_saved_pos', None)} size={getattr(self, '_saved_size', None)}"
             )
