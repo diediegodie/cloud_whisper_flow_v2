@@ -485,15 +485,9 @@ class FloatingWidget(DraggableWidget):
                 )
             else:
                 try:
-                    if getattr(self.floating_button, "_saved_pos", None):
-                        try:
-                            self.floating_button.move(self.floating_button._saved_pos)
-                        except Exception:
-                            print(
-                                "[DBG main_window] floating_button.move(saved_pos) failed, positioning bottom-right"
-                            )
-                            self.floating_button.position_bottom_right()
-                    else:
+                    try:
+                        self.floating_button._restore_position()
+                    except Exception:
                         self.floating_button.position_bottom_right()
                     self.floating_button.show()
                     print("[DBG main_window] floating_button.show() called")
@@ -602,6 +596,22 @@ class FloatingWidget(DraggableWidget):
                 # Start worker
                 self.worker = RecordingWorker(self.transcriber)
                 self.worker.start()
+                # Optionally start FIFO listener to accept externally piped PCM
+                try:
+                    from src.core.fifo_consumer import start_listener
+
+                    # start listener and keep stop_event/thread on the window for cleanup
+                    try:
+                        ev, th = start_listener(self.worker)
+                        self._fifo_stop_event = ev
+                        self._fifo_thread = th
+                        print(f"[DBG main_window] FIFO listener started on /tmp/cloud_whisper_pipe")
+                    except Exception as e:
+                        print(f"[DBG main_window] Failed to start FIFO listener: {e}")
+                except Exception:
+                    # fifo_consumer might not be available in minimalist test envs
+                    pass
+
                 self.status_label.setText("🔴 Recording...")
                 self.status_label.setStyleSheet(STATUS_RECORDING + " font-size: 14px;")
             except Exception as e:
@@ -655,17 +665,9 @@ class FloatingWidget(DraggableWidget):
             print(
                 f"[DBG main_window] mousePress gp={gp} drag_offset={self._drag_position}"
             )
-            # On some platforms (Wayland) clients must request a system move from the compositor
+            # Request compositor-managed move on platforms that require it (delegated to DraggableWidget helper)
             try:
-                from PySide6.QtGui import QGuiApplication
-
-                if QGuiApplication.platformName().lower().startswith("wayland"):
-                    try:
-                        wh = self.window().windowHandle()
-                        if wh is not None:
-                            wh.startSystemMove()
-                    except Exception:
-                        pass
+                self._request_system_move()
             except Exception:
                 pass
             event.accept()

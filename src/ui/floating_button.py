@@ -329,15 +329,9 @@ class FloatingRecordButton(DraggableWidget):
         """Ensure restore button is correctly positioned when shown and restore saved position."""
         try:
             self.restore_button.move(self.width() - 24, 4)
-            if getattr(self, "_saved_pos", None):
-                print(
-                    f"[DBG floating_button] showEvent restoring saved_pos={self._saved_pos}"
-                )
-                self.move(self._saved_pos)
-            else:
-                print(
-                    "[DBG floating_button] showEvent no saved_pos, positioning bottom-right"
-                )
+            try:
+                self._restore_position()
+            except Exception:
                 self.position_bottom_right()
         except Exception:
             pass
