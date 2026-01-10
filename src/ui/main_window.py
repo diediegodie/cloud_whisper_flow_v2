@@ -477,9 +477,10 @@ class FloatingWidget(DraggableWidget):
                 )
             else:
                 try:
-                    if getattr(self.floating_button, "_saved_pos", None):
+                    saved_fb_pos = getattr(self.floating_button, "_saved_pos", None)
+                    if saved_fb_pos is not None:
                         try:
-                            self.floating_button.move(self.floating_button._saved_pos)
+                            self.floating_button.move(saved_fb_pos)
                         except Exception:
                             print(
                                 "[DBG main_window] floating_button.move(saved_pos) failed, positioning bottom-right"
