@@ -29,7 +29,7 @@ def get_project_root() -> Path:
         return Path(__file__).parent.parent.parent
 
 
-def get_model_path(model_name: str = "vosk-model-pt-fb-v0.1.1-20220516_2113") -> Path:
+def get_model_path(model_name: str = "vosk-model-small-pt-0.3") -> Path:
     """Get path to Vosk model directory.
 
     Args:

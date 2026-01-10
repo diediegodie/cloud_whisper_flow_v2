@@ -12,6 +12,7 @@ from PySide6.QtCore import QThread, QMutex
 from src.core.recorder import AudioRecorder, AudioRecorderError
 from src.core.transcriber import Transcriber, TranscriberError
 from src.utils.signals import signals
+from src.core.translator import Translator, TranslatorError
 
 
 class RecordingWorker(QThread):
@@ -96,3 +97,34 @@ class RecordingWorker(QThread):
             self._audio_data = None
         finally:
             self._mutex.unlock()
+
+
+class TranslationWorker(QThread):
+    """Worker thread to perform text translation in background.
+
+    Emits translation-related signals via `signals`.
+    """
+
+    def __init__(self, translator: Translator, text: str, target_language: str = "English") -> None:
+        super().__init__()
+        self.translator = translator
+        self.text = text
+        self.target_language = target_language
+
+    def run(self) -> None:
+        try:
+            signals.translation_started.emit()
+            signals.status_update.emit("Translating...")
+
+            try:
+                result = self.translator.translate(self.text, self.target_language)
+                signals.translation_complete.emit(result)
+                signals.status_update.emit("Ready")
+            except TranslatorError as e:
+                signals.translation_error.emit(str(e))
+            except Exception as e:
+                signals.translation_error.emit(f"Unexpected error: {e}")
+
+        except Exception as e:
+            # Top-level guard: ensure any uncaught error is reported
+            signals.translation_error.emit(f"Worker failure: {e}")

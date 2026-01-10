@@ -39,7 +39,7 @@ QPushButton {
     color: #ffffff;
     border: none;
     border-radius: 5px;
-    padding: 8px 16px;
+    padding: 6px 12px;
 }
 
 QPushButton:hover {
@@ -101,6 +101,7 @@ QPushButton {
     background-color: #dc3545;
     border-radius: 40px;
     border: none;
+    color: #ffffff;
 }
 QPushButton:hover {
     background-color: #c82333;
@@ -113,6 +114,10 @@ QPushButton {
     background-color: #dc3545;
     border-radius: 40px;
     border: 3px solid #ffffff;
+    color: #ffffff;
+}
+QPushButton:hover {
+    background-color: #c82333;
 }
 """
 
