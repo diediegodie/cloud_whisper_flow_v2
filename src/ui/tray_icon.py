@@ -1,6 +1,6 @@
 """System tray icon management."""
 
-from PySide6.QtWidgets import QSystemTrayIcon, QMenu
+# QSystemTrayIcon and QMenu are imported lazily in _setup_tray to avoid system tray setup in headless environments
 from PySide6.QtGui import QIcon, QAction
 from PySide6.QtCore import Signal, QObject
 
@@ -25,7 +25,22 @@ class TrayIcon(QObject):
         self._setup_tray()
 
     def _setup_tray(self):
-        """Set up system tray icon and menu."""
+        """Set up system tray icon and menu.
+
+        Lazily import QSystemTrayIcon and QMenu and skip setup when the
+        system tray is not available (headless / test environments).
+        """
+        # Import lazily to avoid initializing platform tray integration on import
+        from PySide6.QtWidgets import QSystemTrayIcon, QMenu
+
+        # If system tray not available, skip tray setup
+        try:
+            if not QSystemTrayIcon.isSystemTrayAvailable():
+                return
+        except Exception:
+            # If the availability check fails for any reason, skip setup
+            return
+
         # parent may be None; QSystemTrayIcon expects a QWidget parent or None
         self.tray = QSystemTrayIcon(self.parent())
 
@@ -38,7 +53,6 @@ class TrayIcon(QObject):
             from PySide6.QtWidgets import QStyle, QApplication
 
             self.tray.setIcon(
-                # Use StandardPixmap enum to satisfy static type checkers
                 QApplication.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
             )
 

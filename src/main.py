@@ -1,11 +1,48 @@
-"""Voice Translator - Portuguese voice-to-text translator (entrypoint).
+"""Voice Translator - entrypoint.
 
-Minimal startup script for Phase 01; avoids importing external libs.
+Launch the Qt GUI by default. If the GUI cannot start (missing PySide6 or
+running in a headless environment), fall back to a minimal text message.
 """
+
+import builtins
+import os
+
+# Lightweight debug print wrapper: preserve original print but also persist
+# lines that begin with [DBG to a per-user temporary log for later inspection.
+_orig_print = builtins.print
+_log_path = os.path.expanduser("~/.voice_translator_debug.log")
+
+def _dbg_print(*args, **kwargs):
+    _orig_print(*args, **kwargs)
+    try:
+        sep = kwargs.get("sep", " ")
+        end = kwargs.get("end", "\n")
+        msg = sep.join(str(a) for a in args) + end
+        if msg.startswith("[DBG"):
+            with open(_log_path, "a", encoding="utf-8") as f:
+                f.write(msg)
+    except Exception:
+        # Never let logging break the app
+        pass
+
+builtins.print = _dbg_print
 
 
 def main() -> None:
-    print("Voice Translator starting...")
+    try:
+        from PySide6.QtWidgets import QApplication
+        import sys
+
+        # Import GUI after confirming PySide6 is available
+        from src.ui.main_window import FloatingWidget
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        w = FloatingWidget()
+        w.show()
+        sys.exit(app.exec())
+    except Exception as e:
+        # Fall back to a simple CLI message when GUI cannot be started
+        print("Voice Translator starting (GUI unavailable):", e)
 
 
 if __name__ == "__main__":
