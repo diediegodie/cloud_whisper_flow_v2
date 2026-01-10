@@ -22,6 +22,7 @@ from .styles import (
 )
 from .tray_icon import TrayIcon
 from .floating_button import FloatingRecordButton
+from .drag_utils import DraggableWidget
 
 from src.core.transcriber import Transcriber, TranscriberError
 from src.core.workers import RecordingWorker
@@ -41,7 +42,7 @@ class TitleBar(QWidget):
         except Exception:
             pass
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, watched, event):
         from PySide6.QtCore import QEvent
 
         if event.type() in (
@@ -49,28 +50,22 @@ class TitleBar(QWidget):
             QEvent.MouseMove,
             QEvent.MouseButtonRelease,
         ):
-            # Forward mouse events to parent window for dragging behavior.
+            # Forward mouse events to parent window for dragging behavior,
+            # but do not swallow them here so child widgets can still receive
+            # normal click/release sequences.
             try:
                 if event.type() == QEvent.MouseButtonPress:
                     self.parent_window.mousePressEvent(event)
                 elif event.type() == QEvent.MouseMove:
                     self.parent_window.mouseMoveEvent(event)
                 else:
-                    # persist position on release
-                    try:
-                        self.parent_window._saved_geometry = (
-                            self.parent_window.geometry()
-                        )
-                    except Exception:
-                        pass
+                    # Do not persist geometry from TitleBar; FloatingWidget manages geometry persistence.
+                    pass
             except Exception:
                 pass
-            try:
-                event.accept()
-            except Exception:
-                pass
-            return True
-        return super().eventFilter(obj, event)
+            # Allow event to continue to child widgets
+            return False
+        return super().eventFilter(watched, event)
 
     def _setup_ui(self):
         layout = QHBoxLayout(self)
@@ -97,44 +92,34 @@ class TitleBar(QWidget):
         layout.addWidget(self.close_btn)
 
     def mousePressEvent(self, event):
-        print(f"[DBG FloatingWidget] mousePressEvent: pos={self.pos()} global={event.globalPosition() if hasattr(event, 'globalPosition') else event.globalPos()} drag_offset={getattr(self, '_drag_position', None)}")
-        if event.button() == Qt.MouseButton.LeftButton:
-            try:
-                gp = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
-            except Exception:
-                gp = event.globalPos()
-            self._drag_position = gp - self.pos()
-            print(f"[DBG FloatingWidget] drag_offset set: {self._drag_position}")
-            event.accept()
-        else:
+        try:
+            self.parent_window.mousePressEvent(event)
+        except Exception:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        print(f"[DBG FloatingWidget] mouseMoveEvent: pos={self.pos()} drag_offset={getattr(self, '_drag_position', None)} buttons={event.buttons()}")
-        if event.buttons() & Qt.MouseButton.LeftButton:
-            try:
-                gp = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
-            except Exception:
-                gp = event.globalPos()
-            new_pos = gp - self._drag_position
-            print(f"[DBG FloatingWidget] moving to {new_pos}")
-            self.move(new_pos)
-            self._saved_pos = self.pos()
-            event.accept()
-        else:
+        try:
+            self.parent_window.mouseMoveEvent(event)
+        except Exception:
             super().mouseMoveEvent(event)
 
 
-class FloatingWidget(QWidget):
+class FloatingWidget(DraggableWidget):
     def __init__(self):
         super().__init__()
-        self._drag_position = QPoint()
         self._setup_window()
         self._setup_ui()
         # Install event filters on all child widgets so clicks anywhere in the window can be used to drag it.
         try:
             for child in self.findChildren(QWidget) or []:
                 child.installEventFilter(self)
+        except Exception:
+            pass
+        # Initialize drag-tracking state so we can distinguish clicks from drags.
+        try:
+            self._dragging = False
+            self._drag_start_pos = None
+            self._drag_threshold = 5  # pixels; tune as needed
         except Exception:
             pass
         # Tray and floating button (initialized after UI)
@@ -161,35 +146,85 @@ class FloatingWidget(QWidget):
         except Exception as e:
             print(f"[DBG main_window] _setup_global_hotkey failed: {e}")
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, watched, event):
         from PySide6.QtCore import QEvent
 
-        if event.type() in (
-            QEvent.MouseButtonPress,
-            QEvent.MouseMove,
-            QEvent.MouseButtonRelease,
-        ):
-            # Forward mouse events to this widget's handlers so dragging works when clicking anywhere.
+        # Only care about mouse press/move/release sequences
+        if event.type() == QEvent.MouseButtonPress:
             try:
-                if event.type() == QEvent.MouseButtonPress:
-                    self.mousePressEvent(event)
-                elif event.type() == QEvent.MouseMove:
-                    self.mouseMoveEvent(event)
-                else:
-                    # persist position on release
+                if event.button() == Qt.MouseButton.LeftButton:
                     try:
-                        self._saved_geometry = self.geometry()
+                        gp = event.globalPosition().toPoint()
+                    except Exception:
+                        gp = event.globalPos()
+                    self._drag_start_pos = gp
+                    self._dragging = False
+            except Exception:
+                pass
+            # Don't swallow press: let child receive the press for normal clicks.
+            return False
+
+        if event.type() == QEvent.MouseMove:
+            try:
+                gp = (
+                    event.globalPosition().toPoint()
+                    if hasattr(event, "globalPosition")
+                    else event.globalPos()
+                )
+            except Exception:
+                gp = event.globalPos()
+            # Only consider left-button drags that started with a previous press
+            if (event.buttons() & Qt.MouseButton.LeftButton) and getattr(
+                self, "_drag_start_pos", None
+            ):
+                # If not yet dragging, check threshold
+                if not getattr(self, "_dragging", False):
+                    try:
+                        delta = gp - self._drag_start_pos
+                        dist = (
+                            delta.manhattanLength()
+                            if hasattr(delta, "manhattanLength")
+                            else abs(delta.x()) + abs(delta.y())
+                        )
+                    except Exception:
+                        dist = 0
+                    if dist > getattr(self, "_drag_threshold", 5):
+                        # Start dragging: mark state and call mousePressEvent to set offsets.
+                        self._dragging = True
+                        try:
+                            self._request_system_move()
+                        except Exception:
+                            pass
+                        try:
+                            self.mousePressEvent(event)
+                        except Exception:
+                            pass
+                # If dragging, forward move to the window and swallow the event
+                if getattr(self, "_dragging", False):
+                    try:
+                        self.mouseMoveEvent(event)
+                        event.accept()
                     except Exception:
                         pass
-            except Exception:
-                pass
-            # Swallow the event to avoid child widgets interrupting the drag sequence.
-            try:
-                event.accept()
-            except Exception:
-                pass
-            return True
-        return super().eventFilter(obj, event)
+                    return True
+            return False
+
+        if event.type() == QEvent.MouseButtonRelease:
+            # If we were dragging, swallow release and reset state
+            if getattr(self, "_dragging", False):
+                try:
+                    # finalize drag state
+                    self._dragging = False
+                    self._drag_start_pos = None
+                    event.accept()
+                except Exception:
+                    pass
+                return True
+            # not dragging => let child receive release (treat as click)
+            self._drag_start_pos = None
+            return False
+
+        return super().eventFilter(watched, event)
 
     def _setup_window(self):
         self.setWindowTitle("Voice Translator")
@@ -354,7 +389,9 @@ class FloatingWidget(QWidget):
         try:
             import keyboard  # type: ignore
         except Exception:
-            print("[DBG main_window] keyboard module not available; global hotkey disabled")
+            print(
+                "[DBG main_window] keyboard module not available; global hotkey disabled"
+            )
             return
         try:
             # Register F8 to toggle recording; store handler id for cleanup
@@ -391,13 +428,7 @@ class FloatingWidget(QWidget):
         )
         # Restore previous position/size if available
         try:
-            if getattr(self, "_saved_pos", None):
-                self.move(self._saved_pos)
-            if getattr(self, "_saved_size", None):
-                try:
-                    self.resize(self._saved_size)
-                except Exception:
-                    pass
+            self._restore_geometry()
         except Exception:
             pass
         try:
@@ -411,7 +442,9 @@ class FloatingWidget(QWidget):
         try:
             if getattr(self, "_keyboard", None):
                 try:
-                    self._keyboard.remove_hotkey(getattr(self, "_keyboard_hotkey", "f8"))
+                    self._keyboard.remove_hotkey(
+                        getattr(self, "_keyboard_hotkey", "f8")
+                    )
                     print("[DBG main_window] Removed global hotkey F8")
                 except Exception:
                     pass
@@ -428,8 +461,7 @@ class FloatingWidget(QWidget):
         """
         # Save position/size to restore later
         try:
-            self._saved_pos = self.pos()
-            self._saved_size = self.size()
+            self._persist_geometry()
         except Exception:
             self._saved_pos = None
             self._saved_size = None
@@ -529,6 +561,30 @@ class FloatingWidget(QWidget):
         except Exception:
             pass
 
+    def _persist_geometry(self):
+        """Persist current window geometry into _saved_pos/_saved_size."""
+        try:
+            self._saved_pos = self.pos()
+            self._saved_size = self.size()
+            print(
+                f"[DBG main_window] _persist_geometry pos={self._saved_pos} size={self._saved_size}"
+            )
+        except Exception:
+            pass
+
+    def _restore_geometry(self):
+        """Restore window geometry from saved values if present."""
+        try:
+            if getattr(self, "_saved_pos", None):
+                self.move(self._saved_pos)
+            if getattr(self, "_saved_size", None):
+                try:
+                    self.resize(self._saved_size)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def _on_record_toggled(self, checked: bool):
         if checked:
             self.record_button.setText("⏹ STOP")
@@ -590,9 +646,12 @@ class FloatingWidget(QWidget):
                 gp = event.globalPos()
             # Use window position instead of frameGeometry to compute offset
             try:
-                self._drag_position = gp - self.pos()
+                self._drag_position = self._get_drag_offset(gp)
             except Exception:
-                self._drag_position = gp - self.frameGeometry().topLeft()
+                try:
+                    self._drag_position = gp - self.frameGeometry().topLeft()
+                except Exception:
+                    self._drag_position = QPoint()
             print(
                 f"[DBG main_window] mousePress gp={gp} drag_offset={self._drag_position}"
             )
@@ -625,8 +684,7 @@ class FloatingWidget(QWidget):
                 f"[DBG main_window] mouseMove moved_to={new_pos} saved_pos-> {self.pos()}"
             )
             try:
-                self._saved_pos = self.pos()
-                self._saved_size = self.size()
+                self._persist_geometry()
             except Exception:
                 pass
             event.accept()
@@ -636,11 +694,7 @@ class FloatingWidget(QWidget):
     def moveEvent(self, event):
         """Persist position whenever the window is moved."""
         try:
-            self._saved_pos = self.pos()
-            self._saved_size = self.size()
-            print(
-                f"[DBG main_window] moveEvent persisted pos={self._saved_pos} size={self._saved_size}"
-            )
+            self._persist_geometry()
         except Exception:
             pass
         super().moveEvent(event)
@@ -648,11 +702,7 @@ class FloatingWidget(QWidget):
     def resizeEvent(self, event):
         """Persist geometry whenever the window is resized."""
         try:
-            self._saved_pos = self.pos()
-            self._saved_size = self.size()
-            print(
-                f"[DBG main_window] resizeEvent persisted pos={self._saved_pos} size={self._saved_size}"
-            )
+            self._persist_geometry()
         except Exception:
             pass
         super().resizeEvent(event)

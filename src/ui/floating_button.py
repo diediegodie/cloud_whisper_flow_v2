@@ -3,9 +3,10 @@
 from PySide6.QtWidgets import QWidget, QPushButton, QVBoxLayout, QApplication
 from PySide6.QtCore import Qt, QPoint, Signal, QEvent
 from PySide6.QtGui import QMouseEvent
+from .drag_utils import DraggableWidget
 
 
-class FloatingRecordButton(QWidget):
+class FloatingRecordButton(DraggableWidget):
     """Floating button shown when app is minimized.
 
     Signals:
@@ -18,7 +19,6 @@ class FloatingRecordButton(QWidget):
 
     def __init__(self):
         super().__init__()
-        self._drag_position = QPoint()
         self._setup_window()
         self._setup_ui()
 
@@ -118,9 +118,12 @@ class FloatingRecordButton(QWidget):
                 except Exception:
                     gp = event.globalPos()
                 try:
-                    self._drag_position = gp - self.pos()
+                    self._drag_position = self._get_drag_offset(gp)
                 except Exception:
-                    self._drag_position = gp - self.frameGeometry().topLeft()
+                    try:
+                        self._drag_position = gp - self.frameGeometry().topLeft()
+                    except Exception:
+                        self._drag_position = QPoint()
                 print(
                     f"[DBG floating_button] restore_mousePress gp={gp} drag_offset={self._drag_position}"
                 )
@@ -137,7 +140,7 @@ class FloatingRecordButton(QWidget):
                 print(f"[DBG floating_button] restore_mouseMove moved_to={new_pos}")
                 # persist position
                 try:
-                    self._saved_pos = self.pos()
+                    self._persist_position()
                 except Exception:
                     pass
                 event.accept()
@@ -178,9 +181,12 @@ class FloatingRecordButton(QWidget):
                 except Exception:
                     gp = event.globalPos()
                 try:
-                    self._drag_position = gp - self.pos()
+                    self._drag_position = self._get_drag_offset(gp)
                 except Exception:
-                    self._drag_position = gp - self.frameGeometry().topLeft()
+                    try:
+                        self._drag_position = gp - self.frameGeometry().topLeft()
+                    except Exception:
+                        self._drag_position = QPoint()
                 print(
                     f"[DBG floating_button] button_mousePress gp={gp} drag_offset={self._drag_position}"
                 )
@@ -196,7 +202,7 @@ class FloatingRecordButton(QWidget):
                 self.move(new_pos)
                 print(f"[DBG floating_button] button_mouseMove moved_to={new_pos}")
                 try:
-                    self._saved_pos = self.pos()
+                    self._persist_position()
                 except Exception:
                     pass
                 event.accept()
@@ -236,7 +242,7 @@ class FloatingRecordButton(QWidget):
                 # MouseButtonRelease
                 try:
                     # persist last position on release
-                    self._saved_pos = self.pos()
+                    self._persist_position()
                 except Exception:
                     pass
                 try:
@@ -281,15 +287,7 @@ class FloatingRecordButton(QWidget):
             )
             # Request compositor-managed move on Wayland so the window actually follows the pointer
             try:
-                from PySide6.QtGui import QGuiApplication
-
-                if QGuiApplication.platformName().lower().startswith("wayland"):
-                    try:
-                        wh = self.window().windowHandle()
-                        if wh is not None:
-                            wh.startSystemMove()
-                    except Exception:
-                        pass
+                self._request_system_move()
             except Exception:
                 pass
             event.accept()
@@ -306,7 +304,7 @@ class FloatingRecordButton(QWidget):
                 f"[DBG floating_button] mouseMove moved_to={new_pos} saved_pos-> {self.pos()}"
             )
             try:
-                self._saved_pos = self.pos()
+                self._persist_position()
             except Exception:
                 pass
             event.accept()
