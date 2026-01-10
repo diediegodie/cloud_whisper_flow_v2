@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QApplication,
 )
 from PySide6.QtCore import Qt, QPoint, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QGuiApplication
 
 from .styles import (
     DARK_THEME,
@@ -279,8 +279,23 @@ class FloatingWidget(QWidget):
     def _show_window(self):
         """Show and focus the main window; hide floating button."""
         self.show()
-        self.raise_()
-        self.activateWindow()
+        # Some QPA platforms (e.g. offscreen) don't support raise(); avoid
+        # calling it on those platforms to prevent noisy warnings.
+        try:
+            from PySide6.QtGui import QGuiApplication
+            if QGuiApplication.platformName() != "offscreen":
+                try:
+                    self.raise_()
+                except Exception:
+                    pass
+        except Exception:
+            # If platformName check fails, ignore and continue
+            pass
+        # Try to activate the window, but ignore if unsupported
+        try:
+            self.activateWindow()
+        except Exception:
+            pass
         print(f"[DBG main_window] _show_window: saved_pos={getattr(self, '_saved_pos', None)} saved_size={getattr(self, '_saved_size', None)}")
         # Restore previous position/size if available
         try:
