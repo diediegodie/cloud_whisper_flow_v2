@@ -19,6 +19,7 @@ class FloatingRecordButton(DraggableWidget):
 
     def __init__(self):
         super().__init__()
+        self._drag_position = QPoint()
         self._setup_window()
         self._setup_ui()
 
@@ -118,12 +119,9 @@ class FloatingRecordButton(DraggableWidget):
                 except Exception:
                     gp = event.globalPos()
                 try:
-                    self._drag_position = self._get_drag_offset(gp)
+                    self._drag_position = gp - self.pos()
                 except Exception:
-                    try:
-                        self._drag_position = gp - self.frameGeometry().topLeft()
-                    except Exception:
-                        self._drag_position = QPoint()
+                    self._drag_position = gp - self.frameGeometry().topLeft()
                 print(
                     f"[DBG floating_button] restore_mousePress gp={gp} drag_offset={self._drag_position}"
                 )
@@ -140,7 +138,7 @@ class FloatingRecordButton(DraggableWidget):
                 print(f"[DBG floating_button] restore_mouseMove moved_to={new_pos}")
                 # persist position
                 try:
-                    self._persist_position()
+                    self._saved_pos = self.pos()
                 except Exception:
                     pass
                 event.accept()
@@ -181,12 +179,9 @@ class FloatingRecordButton(DraggableWidget):
                 except Exception:
                     gp = event.globalPos()
                 try:
-                    self._drag_position = self._get_drag_offset(gp)
+                    self._drag_position = gp - self.pos()
                 except Exception:
-                    try:
-                        self._drag_position = gp - self.frameGeometry().topLeft()
-                    except Exception:
-                        self._drag_position = QPoint()
+                    self._drag_position = gp - self.frameGeometry().topLeft()
                 print(
                     f"[DBG floating_button] button_mousePress gp={gp} drag_offset={self._drag_position}"
                 )
@@ -202,7 +197,7 @@ class FloatingRecordButton(DraggableWidget):
                 self.move(new_pos)
                 print(f"[DBG floating_button] button_mouseMove moved_to={new_pos}")
                 try:
-                    self._persist_position()
+                    self._saved_pos = self.pos()
                 except Exception:
                     pass
                 event.accept()
@@ -224,32 +219,44 @@ class FloatingRecordButton(DraggableWidget):
         self.button.mouseMoveEvent = _button_mouseMove
         self.button.mouseReleaseEvent = _button_mouseRelease
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, watched, event):
         """Forward mouse events from child widgets to the floating widget so
         dragging works when clicking any child control."""
+        from PySide6.QtGui import QMouseEvent
         if event.type() in (
-            QEvent.MouseButtonPress,
-            QEvent.MouseButtonRelease,
-            QEvent.MouseMove,
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseButtonRelease,
+            QEvent.Type.MouseMove,
         ):
-            print(f"[DBG floating_button] eventFilter: obj={obj} type={event.type()}")
+            print(f"[DBG floating_button] eventFilter: obj={watched} type={event.type()}")
             # Map press/move/release to widget handlers
-            if event.type() == QEvent.MouseButtonPress:
-                self.mousePressEvent(event)
-            elif event.type() == QEvent.MouseMove:
-                self.mouseMoveEvent(event)
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if isinstance(event, QMouseEvent):
+                    try:
+                        self.mousePressEvent(event)
+                    except Exception:
+                        pass
+            elif event.type() == QEvent.Type.MouseMove:
+                if isinstance(event, QMouseEvent):
+                    try:
+                        self.mouseMoveEvent(event)
+                    except Exception:
+                        pass
             else:
                 # MouseButtonRelease
                 try:
                     # persist last position on release
-                    self._persist_position()
+                    self._saved_pos = self.pos()
                 except Exception:
                     pass
                 try:
                     # allow original handlers to run too
-                    orig = getattr(obj, "mouseReleaseEvent", None)
-                    if callable(orig):
-                        orig(event)
+                    orig = getattr(watched, "mouseReleaseEvent", None)
+                    if callable(orig) and isinstance(event, QMouseEvent):
+                        try:
+                            orig(event)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
             try:
@@ -257,7 +264,7 @@ class FloatingRecordButton(DraggableWidget):
             except Exception:
                 pass
             return True  # swallow event after forwarding to avoid child stealing events
-        return super().eventFilter(obj, event)
+        return super().eventFilter(watched, event)
 
     def _on_toggled(self, checked: bool):
         """Handle button toggle and emit signal."""
@@ -285,7 +292,6 @@ class FloatingRecordButton(DraggableWidget):
             print(
                 f"[DBG floating_button] mousePress gp={gp} drag_offset={self._drag_position}"
             )
-            # Request compositor-managed move on Wayland so the window actually follows the pointer
             try:
                 self._request_system_move()
             except Exception:
@@ -304,7 +310,7 @@ class FloatingRecordButton(DraggableWidget):
                 f"[DBG floating_button] mouseMove moved_to={new_pos} saved_pos-> {self.pos()}"
             )
             try:
-                self._persist_position()
+                self._saved_pos = self.pos()
             except Exception:
                 pass
             event.accept()
@@ -329,9 +335,16 @@ class FloatingRecordButton(DraggableWidget):
         """Ensure restore button is correctly positioned when shown and restore saved position."""
         try:
             self.restore_button.move(self.width() - 24, 4)
-            try:
-                self._restore_position()
-            except Exception:
+            saved_pos = getattr(self, "_saved_pos", None)
+            if saved_pos is not None:
+                print(
+                    f"[DBG floating_button] showEvent restoring saved_pos={saved_pos}"
+                )
+                self.move(saved_pos)
+            else:
+                print(
+                    "[DBG floating_button] showEvent no saved_pos, positioning bottom-right"
+                )
                 self.position_bottom_right()
         except Exception:
             pass
