@@ -48,7 +48,7 @@ class TitleBar(QWidget):
         self.close_btn = QPushButton("×", self)
         self.close_btn.setObjectName("closeButton")
         self.close_btn.setFixedSize(30, 30)
-        self.close_btn.clicked.connect(self.parent_window.close)
+        self.close_btn.clicked.connect(self.parent_window._quit_app)
         layout.addWidget(self.close_btn)
 
     def mousePressEvent(self, event):
