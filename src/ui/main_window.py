@@ -596,6 +596,19 @@ class FloatingWidget(QWidget):
             print(
                 f"[DBG main_window] mousePress gp={gp} drag_offset={self._drag_position}"
             )
+            # On some platforms (Wayland) clients must request a system move from the compositor
+            try:
+                from PySide6.QtGui import QGuiApplication
+
+                if QGuiApplication.platformName().lower().startswith("wayland"):
+                    try:
+                        wh = self.window().windowHandle()
+                        if wh is not None:
+                            wh.startSystemMove()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             event.accept()
         else:
             super().mousePressEvent(event)

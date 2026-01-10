@@ -279,6 +279,19 @@ class FloatingRecordButton(QWidget):
             print(
                 f"[DBG floating_button] mousePress gp={gp} drag_offset={self._drag_position}"
             )
+            # Request compositor-managed move on Wayland so the window actually follows the pointer
+            try:
+                from PySide6.QtGui import QGuiApplication
+
+                if QGuiApplication.platformName().lower().startswith("wayland"):
+                    try:
+                        wh = self.window().windowHandle()
+                        if wh is not None:
+                            wh.startSystemMove()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent):
