@@ -13,6 +13,8 @@ class FloatingRecordButton(QWidget):
     """
 
     toggled = Signal(bool)
+    # Emitted when user double-clicks the floating widget to restore main window
+    show_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -60,6 +62,13 @@ class FloatingRecordButton(QWidget):
         )
         self.button.toggled.connect(self._on_toggled)
         layout.addWidget(self.button)
+
+        # double-clicking the floating button should restore the main window
+        def _on_double_click(event):
+            self.show_requested.emit()
+
+        # bind directly to the button double-click event
+        self.button.mouseDoubleClickEvent = _on_double_click
 
     def _on_toggled(self, checked: bool):
         """Handle button toggle and emit signal."""

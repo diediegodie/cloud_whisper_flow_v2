@@ -201,6 +201,11 @@ class FloatingWidget(QWidget):
         """Create floating record button used when app is minimized."""
         self.floating_button = FloatingRecordButton()
         self.floating_button.toggled.connect(self._on_floating_button_toggled)
+        # Allow double-click on floating button to restore the main window
+        try:
+            self.floating_button.show_requested.connect(self._show_window)
+        except Exception:
+            pass
         self.floating_button.position_bottom_right()
         self.floating_button.hide()
 
