@@ -66,7 +66,22 @@ def main() -> None:
             pass
 
         w = FloatingWidget()
-        w.show()
+        # Avoid calling show() on QPA plugins that don't support raise(), such
+        # as 'offscreen'. This prevents noisy plugin warnings during headless
+        # runs. If platformName cannot be determined, fall back to attempting
+        # to show and ignore errors.
+        try:
+            from PySide6.QtGui import QGuiApplication
+            if QGuiApplication.platformName() != "offscreen":
+                try:
+                    w.show()
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                w.show()
+            except Exception:
+                pass
         sys.exit(app.exec())
     except Exception as e:
         # Fall back to a simple CLI message when GUI cannot be started
