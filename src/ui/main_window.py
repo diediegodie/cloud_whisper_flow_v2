@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QApplication,
 )
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtCore import Qt, QPoint, QTimer
 from PySide6.QtGui import QFont
 
 from .styles import (
@@ -42,7 +42,8 @@ class TitleBar(QWidget):
         self.min_btn = QPushButton("─", self)
         self.min_btn.setObjectName("minimizeButton")
         self.min_btn.setFixedSize(30, 30)
-        self.min_btn.clicked.connect(self.parent_window.showMinimized)
+        # Minimize should turn the app into the floating icon (not a normal taskbar minimize)
+        self.min_btn.clicked.connect(self.parent_window._minimize_to_floating)
         layout.addWidget(self.min_btn)
 
         self.close_btn = QPushButton("×", self)
@@ -93,8 +94,9 @@ class FloatingWidget(QWidget):
 
     def _setup_ui(self):
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(10, 10, 10, 10)
-        self.main_layout.setSpacing(10)
+        # Slightly tighter spacing for a compact, modern layout
+        self.main_layout.setContentsMargins(8, 8, 8, 8)
+        self.main_layout.setSpacing(8)
 
         # Title bar at top
         self.title_bar = TitleBar(self)
@@ -225,6 +227,23 @@ class FloatingWidget(QWidget):
 
         QApplication.quit()
 
+    def _minimize_to_floating(self):
+        """Minimize the app into the floating button instead of normal minimize."""
+        # Hide main window and show floating button + tray notification
+        self.hide()
+        try:
+            # Re-position before showing in case screen geometry changed
+            self.floating_button.position_bottom_right()
+            self.floating_button.show()
+        except Exception:
+            pass
+        try:
+            self.tray.show_message(
+                "Voice Translator", "Running in background. Press F8 to record."
+            )
+        except Exception:
+            pass
+
     def _on_floating_button_toggled(self, checked: bool):
         """Sync floating button toggle with main record button."""
         try:
@@ -246,26 +265,13 @@ class FloatingWidget(QWidget):
             pass
 
     def closeEvent(self, event):
-        """Minimize to tray instead of quitting on close.
+        """Close the application when the window is closed (X).
 
-        This prevents the app from exiting when user clicks the close button.
+        The TitleBar X and window manager close action should quit the app.
         """
         try:
-            event.ignore()
-            self.hide()
-            # Show floating button and tray notification
-            try:
-                self.floating_button.show()
-            except Exception:
-                pass
-            try:
-                self.tray.show_message(
-                    "Voice Translator", "Running in background. Press F8 to record."
-                )
-            except Exception:
-                pass
+            self._quit_app()
         except Exception:
-            # Fallback to default close
             super().closeEvent(event)
 
     def _copy_text(self, text_edit: QTextEdit):
@@ -274,6 +280,22 @@ class FloatingWidget(QWidget):
         try:
             # update status with copy feedback
             self.status_label.setText("📋 Copied to clipboard!")
+            # revert status after a short delay, preserving recording state
+            QTimer.singleShot(1500, self._restore_status)
+        except Exception:
+            pass
+
+    def _restore_status(self):
+        """Restore status label depending on current recording state."""
+        try:
+            if getattr(self, "record_button", None) and self.record_button.isChecked():
+                self.status_label.setText("🔴 Recording...")
+                self.status_label.setStyleSheet(
+                    STATUS_RECORDING + " font-size: 14px;"
+                )
+            else:
+                self.status_label.setText("✅ Ready - Press F8 to record")
+                self.status_label.setStyleSheet(STATUS_READY + " font-size: 14px;")
         except Exception:
             pass
 
