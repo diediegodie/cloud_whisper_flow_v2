@@ -112,12 +112,20 @@ class FloatingWidget(QWidget):
         self._setup_window()
         self._setup_ui()
         # Tray and floating button (initialized after UI)
+        # Set up tray and floating button independently so one failing doesn't prevent the other.
         try:
             self._setup_tray()
+        except Exception as e:
+            # Log failure so debugging shows why tray initialization failed.
+            import traceback
+            print(f"[DBG main_window] _setup_tray failed: {e}")
+            traceback.print_exc()
+        try:
             self._setup_floating_button()
-        except Exception:
-            # If tray isn't available in the environment (headless/test), skip
-            pass
+        except Exception as e:
+            import traceback
+            print(f"[DBG main_window] _setup_floating_button failed: {e}")
+            traceback.print_exc()
 
     def _setup_window(self):
         self.setWindowTitle("Voice Translator")
