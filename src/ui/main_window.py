@@ -414,9 +414,10 @@ class FloatingWidget(DraggableWidget):
             saved_pos = getattr(self, "_saved_pos", None)
             if saved_pos is not None:
                 self.move(saved_pos)
-            if getattr(self, "_saved_size", None):
+            saved_size = getattr(self, "_saved_size", None)
+            if saved_size is not None:
                 try:
-                    self.resize(self._saved_size)
+                    self.resize(saved_size)
                 except Exception:
                     pass
         except Exception:
