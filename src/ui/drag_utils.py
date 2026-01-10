@@ -1,4 +1,5 @@
 from PySide6.QtCore import QPoint
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QWidget
 
 
@@ -11,24 +12,35 @@ class DraggableWidget(QWidget):
         self._saved_pos = None
         self._saved_size = None
 
-    def _get_drag_offset(self, global_pos):
-        """Return QPoint offset used for dragging calculations."""
-        if hasattr(global_pos, 'toPoint'):
-            gp = global_pos.toPoint()
-        else:
-            gp = global_pos
-        return gp - self.pos()
+    def _get_drag_offset(self, global_pos: QPoint) -> QPoint:
+        """Calculate drag offset from global mouse position.
+        
+        Args:
+            global_pos: Global mouse position as QPoint
+            
+        Returns:
+            QPoint offset between global position and window position
+        """
+        try:
+            if hasattr(global_pos, 'toPoint'):
+                gp = global_pos.toPoint()
+            else:
+                gp = global_pos
+            return gp - self.pos()
+        except Exception:
+            # Fallback for edge cases
+            return gp - self.frameGeometry().topLeft()
 
-    def _persist_position(self):
-        """Persist current position into internal saved slot."""
+    def _persist_position(self) -> None:
+        """Save current position for later restoration."""
         try:
             self._saved_pos = self.pos()
         except Exception:
             self._saved_pos = None
 
-    def _restore_position(self):
-        """Restore position if previously persisted."""
-        from PySide6.QtCore import QPoint, QSize
+    def _restore_position(self) -> None:
+        """Restore saved position if available."""
+        from PySide6.QtCore import QPoint
         pos = getattr(self, "_saved_pos", None)
         if isinstance(pos, QPoint):
             try:
@@ -63,19 +75,18 @@ class DraggableWidget(QWidget):
             except Exception:
                 pass
 
-    def _request_system_move(self):
-        """Request the platform window to start a system move (Wayland helper)."""
-        wh = None
+    def _request_system_move(self) -> bool:
+        """Request Wayland compositor-managed move if available.
+        
+        Returns:
+            True if startSystemMove was called, False otherwise.
+        """
         try:
-            win = self.window()
-            wh = win.windowHandle() if win is not None else None
+            if QGuiApplication.platformName().lower().startswith("wayland"):
+                wh = self.window().windowHandle()
+                if wh is not None:
+                    wh.startSystemMove()
+                    return True
         except Exception:
-            wh = None
-
-        if wh is not None and hasattr(wh, 'startSystemMove'):
-            try:
-                wh.startSystemMove()
-                return True
-            except Exception:
-                return False
+            pass
         return False
