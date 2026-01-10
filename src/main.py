@@ -37,6 +37,34 @@ def main() -> None:
         from src.ui.main_window import FloatingWidget
 
         app = QApplication.instance() or QApplication(sys.argv)
+
+        # Install a Qt message handler to capture stack traces for problematic
+        # platform plugin warnings (e.g., 'This plugin does not support raise()').
+        try:
+            from PySide6.QtCore import qInstallMessageHandler
+            import traceback as _traceback
+
+            def _qt_message_handler(msg_type, context, message):
+                try:
+                    txt = str(message)
+                    if "raise()" in txt or "does not support raise" in txt:
+                        import sys as _sys
+
+                        _traceback.print_stack(file=_sys.stderr)
+                except Exception:
+                    pass
+                try:
+                    # forward message to stderr so it still appears
+                    import sys as _sys
+
+                    _sys.stderr.write(str(message) + "\n")
+                except Exception:
+                    pass
+
+            qInstallMessageHandler(_qt_message_handler)
+        except Exception:
+            pass
+
         w = FloatingWidget()
         w.show()
         sys.exit(app.exec())
