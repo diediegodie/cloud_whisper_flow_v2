@@ -239,7 +239,10 @@ class FloatingRecordButton(QWidget):
                 gp = event.globalPosition().toPoint()
             except Exception:
                 gp = event.globalPos()
-            self._drag_position = gp - self.frameGeometry().topLeft()
+            try:
+                self._drag_position = gp - self.pos()
+            except Exception:
+                self._drag_position = gp - self.frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent):
@@ -248,7 +251,8 @@ class FloatingRecordButton(QWidget):
                 gp = event.globalPosition().toPoint()
             except Exception:
                 gp = event.globalPos()
-            self.move(gp - self._drag_position)
+            new_pos = gp - self._drag_position
+            self.move(new_pos)
             try:
                 self._saved_pos = self.pos()
             except Exception:

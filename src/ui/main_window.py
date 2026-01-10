@@ -243,10 +243,15 @@ class FloatingWidget(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
-        # Restore previous geometry if available
+        # Restore previous position/size if available
         try:
-            if getattr(self, "_saved_geometry", None):
-                self.setGeometry(self._saved_geometry)
+            if getattr(self, "_saved_pos", None):
+                self.move(self._saved_pos)
+            if getattr(self, "_saved_size", None):
+                try:
+                    self.resize(self._saved_size)
+                except Exception:
+                    pass
         except Exception:
             pass
         try:
@@ -372,7 +377,11 @@ class FloatingWidget(QWidget):
                 gp = event.globalPosition().toPoint()
             except Exception:
                 gp = event.globalPos()
-            self._drag_position = gp - self.frameGeometry().topLeft()
+            # Use window position instead of frameGeometry to compute offset
+            try:
+                self._drag_position = gp - self.pos()
+            except Exception:
+                self._drag_position = gp - self.frameGeometry().topLeft()
             event.accept()
         else:
             super().mousePressEvent(event)
@@ -386,7 +395,8 @@ class FloatingWidget(QWidget):
             new_pos = gp - self._drag_position
             self.move(new_pos)
             try:
-                self._saved_geometry = self.geometry()
+                self._saved_pos = self.pos()
+                self._saved_size = self.size()
             except Exception:
                 pass
             event.accept()
@@ -394,9 +404,10 @@ class FloatingWidget(QWidget):
             super().mouseMoveEvent(event)
 
     def moveEvent(self, event):
-        """Persist geometry whenever the window is moved."""
+        """Persist position whenever the window is moved."""
         try:
-            self._saved_geometry = self.geometry()
+            self._saved_pos = self.pos()
+            self._saved_size = self.size()
         except Exception:
             pass
         super().moveEvent(event)
@@ -404,7 +415,8 @@ class FloatingWidget(QWidget):
     def resizeEvent(self, event):
         """Persist geometry whenever the window is resized."""
         try:
-            self._saved_geometry = self.geometry()
+            self._saved_pos = self.pos()
+            self._saved_size = self.size()
         except Exception:
             pass
         super().resizeEvent(event)
