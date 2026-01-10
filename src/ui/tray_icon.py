@@ -96,16 +96,33 @@ class TrayIcon(QObject):
 
         Left-click (Trigger) is treated as a request to show the window.
         """
+        try:
+            from PySide6.QtWidgets import QSystemTrayIcon
+        except Exception:
+            # QSystemTrayIcon not available in this environment
+            return
+        if getattr(self, "tray", None) is None:
+            return
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.show_requested.emit()
 
     def show(self):
         """Display the tray icon."""
-        self.tray.show()
+        if getattr(self, "tray", None) is None:
+            return
+        try:
+            self.tray.show()
+        except Exception as e:
+            print(f"[DBG TrayIcon] show() failed: {e}")
 
     def hide(self):
         """Hide the tray icon."""
-        self.tray.hide()
+        if getattr(self, "tray", None) is None:
+            return
+        try:
+            self.tray.hide()
+        except Exception as e:
+            print(f"[DBG TrayIcon] hide() failed: {e}")
 
     def show_message(self, title: str, message: str):
         """Show a balloon notification from the tray icon.
@@ -114,4 +131,9 @@ class TrayIcon(QObject):
             title: Notification title
             message: Notification body
         """
-        self.tray.showMessage(title, message)
+        if getattr(self, "tray", None) is None:
+            return
+        try:
+            self.tray.showMessage(title, message)
+        except Exception as e:
+            print(f"[DBG TrayIcon] show_message failed: {e}")
