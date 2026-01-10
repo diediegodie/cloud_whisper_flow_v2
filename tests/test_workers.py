@@ -12,6 +12,29 @@ from src.core.transcriber import Transcriber
 from src.core.workers import RecordingWorker
 from src.utils.signals import signals
 
+import numpy as np
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def mock_audio_recorder(monkeypatch):
+    """Replace AudioRecorder with a fake that doesn't require hardware."""
+    class FakeAudioRecorder:
+        def __init__(self):
+            self._running = False
+
+        def start(self):
+            self._running = True
+
+        def stop(self):
+            # return 0.1s of silent audio at 16kHz as int16
+            return np.zeros(1600, dtype=np.int16)
+
+    # Patch the AudioRecorder used inside the workers module
+    import src.core.workers as workers_mod
+
+    monkeypatch.setattr(workers_mod, "AudioRecorder", FakeAudioRecorder)
+
 
 def test_recording_worker():
     """Test RecordingWorker thread lifecycle."""
