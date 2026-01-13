@@ -63,6 +63,7 @@ class TitleBar(QWidget):
     def mousePressEvent(self, event):
         # TitleBar should forward mouse press events to the parent floating widget
         from PySide6.QtGui import QMouseEvent
+
         if isinstance(event, QMouseEvent):
             try:
                 self.parent_window.mousePressEvent(event)
@@ -77,6 +78,7 @@ class TitleBar(QWidget):
     def mouseMoveEvent(self, event):
         # TitleBar should forward mouse move events to the parent floating widget
         from PySide6.QtGui import QMouseEvent
+
         if isinstance(event, QMouseEvent):
             try:
                 self.parent_window.mouseMoveEvent(event)
@@ -93,6 +95,10 @@ class FloatingWidget(DraggableWidget):
     def __init__(self):
         super().__init__()
         # DraggableWidget handles: _drag_position, _saved_pos, _saved_size
+        from src.core.translator import Translator
+
+        self.translator = Translator()
+        self.translation_worker = None
         self._setup_window()
         self._setup_ui()
         # Tray and floating button (initialized after UI)
@@ -100,7 +106,6 @@ class FloatingWidget(DraggableWidget):
         try:
             self._setup_tray()
         except Exception as e:
-            # Log failure so debugging shows why tray initialization failed.
             import traceback
 
             print(f"[DBG main_window] _setup_tray failed: {e}")
@@ -113,8 +118,6 @@ class FloatingWidget(DraggableWidget):
             print(f"[DBG main_window] _setup_floating_button failed: {e}")
             traceback.print_exc()
         try:
-            # Attempt to register a global F8 hotkey to mirror the UI hint.
-            # Runs only if `keyboard` package is available and permissions allow it.
             self._setup_global_hotkey()
         except Exception as e:
             print(f"[DBG main_window] _setup_global_hotkey failed: {e}")
@@ -190,6 +193,9 @@ class FloatingWidget(DraggableWidget):
         lang_row.addStretch()
         self.main_layout.addLayout(lang_row)
 
+        # Connect translation button
+        self.translate_btn.clicked.connect(self._on_translate_clicked)
+
         # --- Translation section ---
         self.trans_label = QLabel("🇺🇸 Translation:", self)
         self.main_layout.addWidget(self.trans_label)
@@ -213,6 +219,16 @@ class FloatingWidget(DraggableWidget):
 
         trans_btn_row.addStretch()
         self.main_layout.addLayout(trans_btn_row)
+
+        # Connect translation signals
+        try:
+            from src.utils.signals import signals
+
+            signals.translation_started.connect(self._on_translation_started)
+            signals.translation_complete.connect(self._on_translation_complete)
+            signals.translation_error.connect(self._on_translation_error)
+        except Exception as e:
+            print(f"[DBG main_window] Failed to connect translation signals: {e}")
 
         # --- Record button ---
         record_row = QHBoxLayout()
@@ -253,6 +269,38 @@ class FloatingWidget(DraggableWidget):
         except Exception:
             pass
 
+    def _on_translate_clicked(self):
+        from src.core.workers import TranslationWorker
+        from src.utils.signals import signals
+
+        text = self.portuguese_text.toPlainText()
+        target_language = self.language_combo.currentText()
+        # Avoid multiple concurrent workers
+        if getattr(self, "translation_worker", None) is not None:
+            try:
+                self.translation_worker.quit()
+            except Exception:
+                pass
+        self.translation_worker = TranslationWorker(
+            self.translator, text, target_language
+        )
+        self.translation_worker.start()
+
+    def _on_translation_started(self):
+        self.status_label.setText("🔄 Translating...")
+        self.status_label.setStyleSheet(STATUS_RECORDING + " font-size: 14px;")
+        self.translation_text.setPlainText("")
+
+    def _on_translation_complete(self, translated_text):
+        self.translation_text.setPlainText(translated_text)
+        self.status_label.setText("✅ Translation complete")
+        self.status_label.setStyleSheet(STATUS_READY + " font-size: 14px;")
+
+    def _on_translation_error(self, error_msg):
+        self.status_label.setText(f"❌ Translation error: {error_msg}")
+        self.status_label.setStyleSheet(STATUS_READY + " font-size: 14px;")
+
+
     # --- Tray & Floating Button integration ---
     def _setup_tray(self):
         """Set up system tray icon and connect signals."""
@@ -283,17 +331,60 @@ class FloatingWidget(DraggableWidget):
             import keyboard  # type: ignore
         except Exception:
             print(
-                "[DBG main_window] keyboard module not available; global hotkey disabled"
+                "[DBG main_window] keyboard module not available; using app-focused F8 shortcut"
             )
+            try:
+                from PySide6.QtWidgets import QShortcut
+                from PySide6.QtGui import QKeySequence
+                import os
+                self._f8_shortcut = QShortcut(QKeySequence("F8"), self)
+                # Make the shortcut active across the application when app has focus
+                self._f8_shortcut.setContext(Qt.ApplicationShortcut)
+                self._f8_shortcut.activated.connect(lambda: signals.toggle_recording.emit())
+                self._f8_shortcut.setEnabled(True)
+                try:
+                    log_path = os.path.expanduser("~/.voice_translator_debug.log")
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write("[DBG main_window] Registered app-focused F8 shortcut\n")
+                except Exception:
+                    pass
+                print("[DBG main_window] Registered app-focused F8 shortcut")
+            except Exception as e:
+                print(f"[DBG main_window] Failed to register app-focused F8 shortcut: {e}")
             return
         try:
             # Register F8 to toggle recording; store handler id for cleanup
             handler = keyboard.add_hotkey("f8", lambda: signals.toggle_recording.emit())
             self._keyboard = keyboard
             self._keyboard_hotkey = handler
+            try:
+                import os
+                log_path = os.path.expanduser("~/.voice_translator_debug.log")
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write("[DBG main_window] Registered global hotkey F8\n")
+            except Exception:
+                pass
             print("[DBG main_window] Registered global hotkey F8")
         except Exception as e:
             print(f"[DBG main_window] Failed to register global hotkey: {e}")
+            # Fallback to app-focused QShortcut so F8 still works when window focused
+            try:
+                from PySide6.QtWidgets import QShortcut
+                from PySide6.QtGui import QKeySequence
+                import os
+                self._f8_shortcut = QShortcut(QKeySequence("F8"), self)
+                self._f8_shortcut.setContext(Qt.ApplicationShortcut)
+                self._f8_shortcut.activated.connect(lambda: signals.toggle_recording.emit())
+                self._f8_shortcut.setEnabled(True)
+                try:
+                    log_path = os.path.expanduser("~/.voice_translator_debug.log")
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write("[DBG main_window] Registered app-focused F8 shortcut as fallback\n")
+                except Exception:
+                    pass
+                print("[DBG main_window] Registered app-focused F8 shortcut as fallback")
+            except Exception as e2:
+                print(f"[DBG main_window] Failed to register app-focused F8 shortcut: {e2}")
 
     def _show_window(self):
         """Show and focus the main window; hide floating button."""
@@ -347,6 +438,12 @@ class FloatingWidget(DraggableWidget):
                         getattr(self, "_keyboard_hotkey", "f8")
                     )
                     print("[DBG main_window] Removed global hotkey F8")
+                except Exception:
+                    pass
+            if getattr(self, "_f8_shortcut", None):
+                try:
+                    self._f8_shortcut.setEnabled(False)
+                    print("[DBG main_window] Disabled app-focused F8 shortcut")
                 except Exception:
                     pass
         except Exception:
@@ -543,12 +640,50 @@ class FloatingWidget(DraggableWidget):
                 gp = event.globalPos()
             new_pos = gp - self._drag_position
             self.move(new_pos)
-            print(
-                f"[DBG main_window] mouseMove moved_to={new_pos}"
-            )
+            print(f"[DBG main_window] mouseMove moved_to={new_pos}")
             event.accept()
         else:
             super().mouseMoveEvent(event)
+
+    def keyPressEvent(self, event):
+        """Handle focused key presses as a fallback for global hotkeys.
+
+        Specifically capture F8 and emit signals.toggle_recording when the app
+        has focus. This does not require QShortcut and works across PySide6
+        variations where QShortcut may fail to import.
+        """
+        try:
+            key = event.key()
+            is_f8 = False
+            try:
+                is_f8 = key == Qt.Key.Key_F8
+            except Exception:
+                # Fallback for enum location differences
+                try:
+                    is_f8 = key == Qt.Key_F8
+                except Exception:
+                    is_f8 = False
+            if is_f8:
+                try:
+                    from src.utils.signals import signals
+                    signals.toggle_recording.emit()
+                    import os
+                    try:
+                        with open(os.path.expanduser("~/.voice_translator_debug.log"), "a", encoding="utf-8") as f:
+                            f.write("[DBG main_window] keyPressEvent: F8 pressed, emitted toggle_recording\n")
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                event.accept()
+                return
+        except Exception:
+            pass
+        try:
+            super().keyPressEvent(event)
+        except Exception:
+            # Some Qt platforms may not implement keyPressEvent; ignore silently
+            pass
 
     def moveEvent(self, event):
         """Persist position whenever the window is moved."""
