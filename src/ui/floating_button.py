@@ -1,7 +1,8 @@
 """Floating record button for Background Mode."""
 
+import logging
 from PySide6.QtWidgets import QPushButton, QVBoxLayout, QApplication
-from PySide6.QtCore import Qt, QPoint, Signal
+from PySide6.QtCore import Qt, Signal, QObject, QEvent, QPointF
 from PySide6.QtGui import QMouseEvent
 from .drag_utils import DraggableWidget
 
@@ -87,7 +88,7 @@ class FloatingRecordButton(DraggableWidget):
         )
         self.restore_button.clicked.connect(lambda: self.show_requested.emit())
         # Position in top-right corner of the floating widget
-        self.restore_button.move(self.width() - 24, 4)
+        self._position_restore_button()
         # raise() may be unsupported on some QPA platforms (offscreen).
         try:
             from PySide6.QtGui import QGuiApplication
@@ -105,70 +106,6 @@ class FloatingRecordButton(DraggableWidget):
         except Exception:
             pass
 
-        # Install event filters so child widgets forward mouse events to the
-        # floating widget, allowing dragging when clicking on the inner button
-        # or restore button while preserving their normal click behavior.
-        try:
-            self.button.installEventFilter(self)
-            self.restore_button.installEventFilter(self)
-        except Exception:
-            pass
-
-
-
-    def eventFilter(self, watched, event):
-        """Forward mouse events from child widgets to the floating widget so
-        dragging works when clicking any child control, without preventing
-        the child from receiving clicks (we return False so the child's
-        normal behavior still runs).
-        """
-        from PySide6.QtGui import QMouseEvent
-        from PySide6.QtCore import QEvent
-        try:
-            if event.type() in (
-                QEvent.Type.MouseButtonPress,
-                QEvent.Type.MouseButtonMove,
-                QEvent.Type.MouseButtonRelease,
-            ):
-                if isinstance(event, QMouseEvent):
-                    # Mouse press: initialize drag offset but do not accept the
-                    # event so the child still receives clicks.
-                    if event.type() == QEvent.Type.MouseButtonPress:
-                        if event.button() == Qt.MouseButton.LeftButton:
-                            try:
-                                gp = event.globalPosition().toPoint()
-                            except Exception:
-                                gp = event.globalPos()
-                            try:
-                                self._drag_position = self._get_drag_offset(gp)
-                            except Exception:
-                                pass
-                            try:
-                                self._request_system_move()
-                            except Exception:
-                                pass
-                    # Mouse move: update parent position when dragging
-                    elif event.type() == QEvent.Type.MouseButtonMove:
-                        if event.buttons() & Qt.MouseButton.LeftButton:
-                            try:
-                                gp = event.globalPosition().toPoint()
-                            except Exception:
-                                gp = event.globalPos()
-                            new_pos = gp - self._drag_position
-                            try:
-                                self.move(new_pos)
-                            except Exception:
-                                pass
-                    # Mouse release: persist position
-                    else:
-                        try:
-                            self._persist_position()
-                        except Exception:
-                            pass
-        except Exception:
-            pass
-        # Return False so that the child widget also processes the event
-        return super().eventFilter(watched, event)
 
     def _on_toggled(self, checked: bool):
         """Handle button toggle and emit signal."""
@@ -183,28 +120,37 @@ class FloatingRecordButton(DraggableWidget):
         self.button.setChecked(recording)
 
     # Dragging support
+    def _to_qpoint(self, global_pos):
+        """Normalize a global position (QPointF or QPoint) to QPoint."""
+        try:
+            if isinstance(global_pos, QPointF):
+                return global_pos.toPoint()
+        except Exception:
+            pass
+        return global_pos
+
+    def _position_restore_button(self):
+        try:
+            self.restore_button.move(self.width() - 24, 4)
+        except Exception:
+            pass
+
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            try:
-                gp = event.globalPosition().toPoint()
-            except Exception:
-                gp = event.globalPos()
+            gp = self._to_qpoint(event.globalPosition())
             # Use DraggableWidget helper for consistent offset calculation
-            self._drag_position = self._get_drag_offset(gp)
-            print(f"[DBG floating_button] mousePress gp={gp} drag_offset={self._drag_position}")
+            self._drag_position = self._get_drag_offset(event.globalPosition())
+            logging.debug(f"[DBG floating_button] mousePress gp={gp} drag_offset={self._drag_position}")
             # Request Wayland-managed move if supported
             self._request_system_move()
             event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if event.buttons() & Qt.MouseButton.LeftButton:
-            try:
-                gp = event.globalPosition().toPoint()
-            except Exception:
-                gp = event.globalPos()
+            gp = self._to_qpoint(event.globalPosition())
             new_pos = gp - self._drag_position
             self.move(new_pos)
-            print(f"[DBG floating_button] mouseMove moved_to={new_pos}")
+            logging.debug(f"[DBG floating_button] mouseMove moved_to={new_pos}")
             # Persist position via DraggableWidget helper
             try:
                 self._persist_position()
@@ -212,32 +158,27 @@ class FloatingRecordButton(DraggableWidget):
                 pass
             event.accept()
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Forward mouse events from child widgets to the floating widget handlers.
 
         This allows dragging the floating button even when the user clicks on the
-        visible child QPushButton(s).
+        visible child QPushButton(s). Keep returning False when forwarding so
+        the child still receives the event (preserves toggle behavior).
         """
-        try:
-            from PySide6.QtCore import QEvent
-            from PySide6.QtGui import QMouseEvent
-        except Exception:
-            return super().eventFilter(obj, event)
-
         if isinstance(event, QMouseEvent):
-            # Forward press/move/release to the widget so dragging works when
-            # interacting with child controls. Return False so the child also
-            # receives the event (keeps button toggle behavior intact).
             try:
-                if event.type() in (
-                    QEvent.Type.MouseButtonPress,
-                    QEvent.Type.MouseButtonRelease,
-                ):
+                et = event.type()
+                if et == QEvent.Type.MouseButtonPress:
                     try:
                         self.mousePressEvent(event)
                     except Exception:
                         pass
-                elif event.type() == QEvent.Type.MouseMove:
+                elif et == QEvent.Type.MouseButtonRelease:
+                    try:
+                        self.mouseReleaseEvent(event)
+                    except Exception:
+                        pass
+                elif et == QEvent.Type.MouseMove:
                     try:
                         self.mouseMoveEvent(event)
                     except Exception:
@@ -246,41 +187,34 @@ class FloatingRecordButton(DraggableWidget):
                 pass
             return False
 
-        return super().eventFilter(obj, event)
+        return super().eventFilter(watched, event)
 
     def position_bottom_right(self):
         """Position button at bottom-right of primary screen with 20px margin."""
-        screen = QApplication.primaryScreen().geometry()
+        screen = QApplication.primaryScreen().availableGeometry()
         x = screen.width() - 90
         y = screen.height() - 90
-        print(f"[DBG floating_button] position_bottom_right -> x={x} y={y}")
+        logging.debug(f"[DBG floating_button] position_bottom_right -> x={x} y={y}")
         self.move(x, y)
 
     def resizeEvent(self, event):
         """Keep the small restore button positioned at top-right when resized."""
-        try:
-            self.restore_button.move(self.width() - 24, 4)
-        except Exception:
-            pass
+        self._position_restore_button()
         super().resizeEvent(event)
 
     def showEvent(self, event):
         """Ensure restore button is correctly positioned when shown and restore saved position."""
         try:
-            self.restore_button.move(self.width() - 24, 4)
+            self._position_restore_button()
             saved_pos = getattr(self, "_saved_pos", None)
             if saved_pos is not None:
-                print(
-                    f"[DBG floating_button] showEvent restoring saved_pos={saved_pos}"
-                )
+                logging.debug(f"[DBG floating_button] showEvent restoring saved_pos={saved_pos}")
                 try:
                     self._restore_position()
                 except Exception:
                     pass
             else:
-                print(
-                    "[DBG floating_button] showEvent no saved_pos, positioning bottom-right"
-                )
+                logging.debug("[DBG floating_button] showEvent no saved_pos, positioning bottom-right")
                 self.position_bottom_right()
         except Exception:
             pass

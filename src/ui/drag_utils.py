@@ -1,4 +1,5 @@
-from PySide6.QtCore import QPoint
+from typing import Union, cast
+from PySide6.QtCore import QPoint, QPointF
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QWidget
 
@@ -12,24 +13,24 @@ class DraggableWidget(QWidget):
         self._saved_pos = None
         self._saved_size = None
 
-    def _get_drag_offset(self, global_pos: QPoint) -> QPoint:
+    def _get_drag_offset(self, global_pos: Union[QPoint, QPointF]) -> QPoint:
         """Calculate drag offset from global mouse position.
         
         Args:
-            global_pos: Global mouse position as QPoint
+            global_pos: Global mouse position as QPoint or QPointF
             
         Returns:
             QPoint offset between global position and window position
         """
         try:
-            if hasattr(global_pos, 'toPoint'):
-                gp = global_pos.toPoint()
+            if isinstance(global_pos, QPointF):
+                return global_pos.toPoint() - self.pos()
             else:
-                gp = global_pos
-            return gp - self.pos()
+                # Treat global_pos as QPoint here; cast for the type checker
+                return cast(QPoint, global_pos) - self.pos()
         except Exception:
             # Fallback for edge cases
-            return gp - self.frameGeometry().topLeft()
+            return self.pos() - self.frameGeometry().topLeft()
 
     def _persist_position(self) -> None:
         """Save current position for later restoration."""
