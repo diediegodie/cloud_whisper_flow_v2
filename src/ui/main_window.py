@@ -162,16 +162,18 @@ class FloatingWidget(DraggableWidget):
                 return
             self._f8_shortcut = QShortcut(QKeySequence("F8"), self)
             # Avoid setContext for static-analysis compatibility
-            self._f8_shortcut.activated.connect(
-                lambda: signals.toggle_recording.emit()
-            )
+            self._f8_shortcut.activated.connect(lambda: signals.toggle_recording.emit())
             self._f8_shortcut.setEnabled(True)
-            self._write_debug_log("[DBG main_window] Registered app-focused F8 shortcut")
+            self._write_debug_log(
+                "[DBG main_window] Registered app-focused F8 shortcut"
+            )
             print("[DBG main_window] Registered app-focused F8 shortcut")
         except Exception:
             pass
 
-    def _set_status(self, text: str, style: Optional[str] = None, timeout_ms: int = 1500) -> None:
+    def _set_status(
+        self, text: str, style: Optional[str] = None, timeout_ms: int = 1500
+    ) -> None:
         try:
             self.status_label.setText(text)
             if style is not None:
@@ -182,7 +184,9 @@ class FloatingWidget(DraggableWidget):
         except Exception:
             pass
 
-    def _add_copy_clear_row(self, text_edit: QTextEdit, prefix: Optional[str] = None) -> None:
+    def _add_copy_clear_row(
+        self, text_edit: QTextEdit, prefix: Optional[str] = None
+    ) -> None:
         try:
             row = QHBoxLayout()
             copy_btn = QPushButton("📋 Copy", self)
@@ -392,46 +396,25 @@ class FloatingWidget(DraggableWidget):
         the permission (e.g., macOS accessibility), this will log and continue.
         """
         try:
-            import keyboard  # type: ignore
-        except Exception:
-            # If `keyboard` isn't available, register an application-scoped F8 shortcut.
-            print(
-                "[DBG main_window] keyboard module not available; using app-focused F8 shortcut"
-            )
-            try:
-                self._register_local_f8()
-            except Exception:
-                pass
-            return
-
-        try:
-            # Register F8 to toggle recording; store handler id for cleanup
-            handler = keyboard.add_hotkey("f8", lambda: signals.toggle_recording.emit())
-            self._keyboard = keyboard
-            self._keyboard_hotkey = handler
-            try:
-                self._write_debug_log("[DBG main_window] Registered global hotkey F8")
-            except Exception:
-                pass
-            print("[DBG main_window] Registered global hotkey F8")
-        except Exception as e:
-            print(f"[DBG main_window] Failed to register global hotkey: {e}")
-            # Fallback to app-focused QShortcut so F8 still works when window focused
-            try:
+            # Delegate hotkey setup to HotkeyManager when available.
+            if getattr(self, "_hotkey_manager", None):
                 try:
-                    self._register_local_f8()
-                    self._write_debug_log(
-                        "[DBG main_window] Registered app-focused F8 shortcut as fallback"
-                    )
-                    print(
-                        "[DBG main_window] Registered app-focused F8 shortcut as fallback"
+                    self._hotkey_manager.register_f8(
+                        lambda: signals.toggle_recording.emit()
                     )
                 except Exception:
+                    # As a last resort, register an app-focused shortcut
+                    try:
+                        self._register_local_f8()
+                    except Exception:
+                        pass
+            else:
+                try:
+                    self._register_local_f8()
+                except Exception:
                     pass
-            except Exception as e2:
-                print(
-                    f"[DBG main_window] Failed to register app-focused F8 shortcut: {e2}"
-                )
+        except Exception as e:
+            logging.exception(f"_setup_global_hotkey failed: {e}")
 
     def _show_window(self):
         """Show and focus the main window; hide floating button."""
